@@ -1,12 +1,22 @@
 package com.coreyd97.burpcustomizer;
 
+import com.formdev.flatlaf.FlatDefaultsAddon;
 import com.formdev.flatlaf.IntelliJTheme;
+import com.formdev.flatlaf.util.SystemInfo;
 
 import javax.swing.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
+import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A FlatLaf IntelliJ theme with Burp's own UI properties layered on top.
@@ -16,6 +26,15 @@ import java.util.Properties;
  * property files next to Burp's own look and feel classes, so we load them before the
  * theme's own values and then map the theme's colours onto the Burp specific keys in
  * {@link #getAdditionalDefaults()}.
+ * <p>
+ * Burp's look and feel is itself built from an IntelliJ theme json, so its property files
+ * reference named colours from that json - {@code $ColorPalette.colorSeparator} and friends.
+ * Those colours only exist while Burp's own theme is providing the defaults; under any other
+ * theme FlatLaf cannot resolve the reference and throws {@link IllegalArgumentException} out
+ * of {@code getDefaults()}, which fails the whole look and feel. Two things stop that here:
+ * {@link #missingReferenceFallbacks} defines whatever Burp references and nothing provides,
+ * and {@link #getDefaults()} falls back to loading the theme without Burp's defaults if they
+ * turn out to be unusable anyway.
  */
 public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
@@ -32,10 +51,22 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
     private static volatile boolean burpLafLookupFailureLogged;
 
     /**
+     * A {@code $property} or {@code @variable} reference inside a properties value.
+     * {@code $?name} is optional - FlatLaf resolves it to null instead of failing.
+     */
+    private static final Pattern PROPERTY_REFERENCE = Pattern.compile("([$@])(\\??)([A-Za-z0-9_.\\[\\]-]+)");
+
+    /**
      * Set for themes built for the (currently disabled) live preview panel rather than
      * for Burp itself.
      */
     private final boolean isPreview;
+
+    /**
+     * Set once Burp's defaults have proven unusable for this theme, so the retry in
+     * {@link #getDefaults()} loads the theme without them.
+     */
+    private boolean burpDefaultsDisabled;
 
     public CustomTheme(IntelliJTheme.ThemeLaf base, boolean isPreview) {
         super(base.getTheme());
@@ -98,6 +129,7 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
     @Override
     protected ArrayList<Class<?>> getLafClassesForDefaultsLoading() {
         ArrayList<Class<?>> lafClasses = super.getLafClassesForDefaultsLoading();
+        if (burpDefaultsDisabled) return lafClasses;
         BurpLafClasses burpClasses = getBurpLafClasses();
         if (burpClasses == null) return lafClasses;
 
@@ -111,8 +143,159 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
     private record BurpLafClasses(Class<?> base, Class<?> dark, Class<?> light) {
     }
 
+    /**
+     * Burp's defaults must never be able to take the whole look and feel down with them.
+     * If they cannot be loaded - an unresolvable reference, a property FlatLaf refuses -
+     * the theme is loaded again without them and the failure is logged.
+     */
+    @Override
+    public UIDefaults getDefaults() {
+        try {
+            return super.getDefaults();
+        } catch (RuntimeException e) {
+            if (burpDefaultsDisabled) throw e;
+            burpDefaultsDisabled = true;
+            BurpCustomizer.logError("Burp's own UI defaults could not be applied to the theme \"" + getName()
+                    + "\" (" + e.getMessage() + "). Applying the theme without them - Burp specific components "
+                    + "may not match the theme.", e);
+            return super.getDefaults();
+        }
+    }
+
     @Override
     protected Properties getAdditionalDefaults() {
+        Properties defaults = new Properties();
+        Properties burpOverrides = getBurpOverrides();
+        //Fallbacks first: anything Burp genuinely defines, and every override below,
+        //has to win over them.
+        defaults.putAll(missingReferenceFallbacks(burpOverrides));
+        defaults.putAll(burpOverrides);
+        return defaults;
+    }
+
+    /**
+     * Defines every {@code $property} / {@code @variable} which the properties files about to
+     * be loaded reference but nothing defines, so FlatLaf can resolve them.
+     * <p>
+     * This is deliberately generic rather than a list of the keys one Burp release happens to
+     * use: the same class of breakage appears whenever PortSwigger references another colour
+     * from Burp's own theme json.
+     *
+     * @param ownDefaults the overrides this class is about to add, which also count as defined
+     */
+    private Properties missingReferenceFallbacks(Properties ownDefaults) {
+        List<Class<?>> lafClasses = getLafClassesForDefaultsLoading();
+        Properties properties = new Properties();
+        for (Class<?> lafClass : lafClasses)
+            loadProperties(lafClass, properties);
+
+        //Addons contribute defaults too, and are loaded before ours - anything they define
+        //must not be shadowed by a fallback.
+        Properties definedByAddons = new Properties();
+        for (FlatDefaultsAddon addon : ServiceLoader.load(FlatDefaultsAddon.class)) {
+            for (Class<?> lafClass : lafClasses) {
+                try (InputStream in = addon.getDefaults(lafClass)) {
+                    if (in != null) definedByAddons.load(in);
+                } catch (IOException | IllegalArgumentException e) {
+                    BurpCustomizer.logError("Could not read UI defaults from addon " + addon.getClass().getName(), e);
+                }
+            }
+        }
+
+        Set<String> defined = new HashSet<>();
+        collectDefinedKeys(properties, defined);
+        collectDefinedKeys(definedByAddons, defined);
+        collectDefinedKeys(ownDefaults, defined);
+
+        Properties fallbacks = new Properties();
+        for (Object value : properties.values()) {
+            Matcher matcher = PROPERTY_REFERENCE.matcher((String) value);
+            while (matcher.find()) {
+                boolean optional = !matcher.group(2).isEmpty();
+                //A variable reference keeps its '@', a property reference drops its '$'.
+                String key = matcher.group(1).equals("@") ? "@" + matcher.group(3) : matcher.group(3);
+                if (optional || defined.contains(key) || fallbacks.containsKey(key)) continue;
+                fallbacks.put(key, fallbackFor(key));
+            }
+        }
+
+        if (!fallbacks.isEmpty())
+            BurpCustomizer.logOutput("Burp Customizer: defined " + fallbacks.size() + " fallback value(s) for UI "
+                    + "properties which Burp references but this theme does not provide: " + fallbacks.keySet());
+
+        return fallbacks;
+    }
+
+    /**
+     * Loads the properties file FlatLaf would load for this class, if there is one.
+     * Uses the class's own class loader, which for Burp's classes is Burp's.
+     */
+    private static void loadProperties(Class<?> lafClass, Properties into) {
+        String resource = '/' + lafClass.getName().replace('.', '/') + ".properties";
+        try (InputStream in = lafClass.getResourceAsStream(resource)) {
+            if (in != null) into.load(in);
+        } catch (IOException | IllegalArgumentException e) {
+            BurpCustomizer.logError("Could not read UI defaults from " + resource, e);
+        }
+    }
+
+    private void collectDefinedKeys(Properties properties, Set<String> into) {
+        for (String key : properties.stringPropertyNames()) {
+            String defined = effectiveKey(key);
+            if (defined != null) into.add(defined);
+        }
+    }
+
+    /**
+     * The key a property actually defines, or null if it does not apply here.
+     * Keys may carry the condition they apply under, e.g. {@code [dark]Some.key} or
+     * {@code [win]Some.key}; FlatLaf drops the ones which do not match before resolving
+     * references, so a {@code [dark]} definition is no help to a light theme.
+     */
+    private String effectiveKey(String key) {
+        String platformPrefix = SystemInfo.isWindows ? "[win]" : SystemInfo.isMacOS ? "[mac]" : "[linux]";
+        while (key.startsWith("[")) {
+            int end = key.indexOf(']');
+            if (end < 0) return key;
+            String prefix = key.substring(0, end + 1);
+            switch (prefix) {
+                case "[dark]" -> { if (!isDark()) return null; }
+                case "[light]" -> { if (isDark()) return null; }
+                case "[win]", "[mac]", "[linux]" -> { if (!prefix.equals(platformPrefix)) return null; }
+                //Any other bracketed prefix (e.g. "[style]") is part of the key itself.
+                default -> { return key; }
+            }
+            key = key.substring(end + 1);
+        }
+        return key;
+    }
+
+    /**
+     * A stand-in value for a property Burp references but this theme does not define, picked
+     * from the FlatLaf variables which every theme's base (FlatDarkLaf/FlatLightLaf) defines,
+     * so it at least follows the theme's polarity. The Burp keys which actually matter are
+     * re-mapped onto the theme's own colours by {@link #getBurpOverrides()} afterwards.
+     */
+    private static String fallbackFor(String key) {
+        String name = key.toLowerCase(Locale.ROOT);
+        if (containsAny(name, "separator", "border", "divider", "grid", "outline", "line"))
+            return "@disabledForeground";
+        if (containsAny(name, "disabled", "inactive")) return "@disabledForeground";
+        if (containsAny(name, "selection", "selected")) return "@selectionBackground";
+        if (containsAny(name, "focus", "accent", "underline", "highlight", "hover", "pressed", "link"))
+            return "@accentFocusColor";
+        if (containsAny(name, "foreground", "text", "caret", "icon", "arrow")) return "@foreground";
+        return "@background";
+    }
+
+    private static boolean containsAny(String value, String... candidates) {
+        for (String candidate : candidates) {
+            if (value.contains(candidate)) return true;
+        }
+        return false;
+    }
+
+    private Properties getBurpOverrides() {
         //Add Additional Overrides Here
         //This is actually run BEFORE the theme is loaded, so we need to use lazy loading to pull values from the theme.
         Properties defaults = new Properties();
