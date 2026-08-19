@@ -19,7 +19,7 @@ dependencies {
     implementation 'com.github.CoreyD97:Burp-Montoya-Utilities:2993e293'
     implementation 'com.formdev:flatlaf-intellij-themes:2.4'
     compileOnly 'com.formdev:flatlaf:2.4' //Already shipped in burp
-    compileOnly 'com.formdev:flatlaf-extras:2.4' //Already implemented in burp
+    implementation 'com.formdev:flatlaf-extras:2.4' //Already implemented in burp
     compileOnly files('burpsuite_pro.jar')
 }
 
