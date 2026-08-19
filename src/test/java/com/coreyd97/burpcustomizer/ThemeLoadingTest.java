@@ -46,7 +46,10 @@ class ThemeLoadingTest {
     private ThemeManager themeManager;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        //Start from a look and feel with nothing Burp specific in it, so these tests see
+        //Burp's defaults only through the stand-in classes on the classpath.
+        UIManager.setLookAndFeel(new javax.swing.plaf.metal.MetalLookAndFeel());
         themeManager = new ThemeManager(UIManager.getLookAndFeel(), null);
     }
 
@@ -108,6 +111,22 @@ class ThemeLoadingTest {
     }
 
     /**
+     * A '$' in the middle of a value is part of the value, not a reference: FlatLaf's own
+     * defaults name inner classes such as FlatRootPaneUI$FlatWindowBorder.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Dracula", "Catppuccin Mocha"})
+    void innerClassNamesAreNotMistakenForReferences(String name) throws ThemeLoadException {
+        themeManager.applyBundledTheme(theme(name));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        assertNull(defaults.get("FlatWindowBorder"), "the inner class name was read as a property reference");
+        assertNull(defaults.get("FlatInternalFrameBorder"), "the inner class name was read as a property reference");
+        assertInstanceOf(javax.swing.border.Border.class, defaults.get("RootPane.border"),
+                name + ": RootPane.border was broken by a bogus fallback");
+    }
+
+    /**
      * Fallbacks must only fill gaps - a palette colour Burp defines itself still wins.
      */
     @ParameterizedTest
@@ -159,7 +178,8 @@ class ThemeLoadingTest {
         UIDefaults defaults = UIManager.getLookAndFeelDefaults();
         for (String key : REPRESENTATIVE_KEYS)
             assertInstanceOf(Color.class, defaults.get(key), key + " should still resolve without Burp's defaults");
-        assertNull(defaults.get("Burp.regressionPolarity"), "Burp's defaults should have been dropped");
+        assertNull(defaults.get("Burp.regressionPolarity"),
+                "Burp's defaults should have been dropped, and there was nothing captured to derive them from");
     }
 
     @ParameterizedTest

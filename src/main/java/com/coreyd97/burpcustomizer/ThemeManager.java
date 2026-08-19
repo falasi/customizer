@@ -75,11 +75,10 @@ public class ThemeManager {
     public ThemeManager(LookAndFeel originalBurpTheme, Runnable afterThemeApplied) {
         this.originalBurpTheme = originalBurpTheme;
         this.afterThemeApplied = afterThemeApplied;
-        if (originalBurpTheme != null) {
-            // Burp's own look and feel is the most reliable handle on a class loader
-            // which can actually see Burp's internal theme classes.
-            CustomTheme.setBurpClassLoaderHint(originalBurpTheme.getClass().getClassLoader());
-        }
+        //Burp's own look and feel is the only reliable handle on the classes its UI defaults
+        //live in, the class loader which can see them, and the values it had before theming.
+        //This has to happen before any theme is applied.
+        CustomTheme.setBurpLookAndFeel(originalBurpTheme);
 
         this.themes = new ArrayList<>(Arrays.stream(FlatAllIJThemes.INFOS)
                 .filter(lookAndFeelInfo -> !lookAndFeelInfo.getName().equalsIgnoreCase("Xcode-Dark"))

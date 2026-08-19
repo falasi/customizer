@@ -1,4 +1,4 @@
-package burp.theme;
+package burp.ui.laf;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLaf;
@@ -8,23 +8,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Stand-in for the look and feel older Burp releases install, under the class names the
- * extension used to hard code.
- * <p>
- * It is a real FlatLaf so tests can install it and then inspect what the extension makes of
- * it, and its {@code .properties} resources have the same shape as Burp's: they reference
- * named colours from Burp's own theme json, which no other theme defines.
+ * Stand-in for a Burp release which has moved its look and feel: different package, different
+ * class names, and part of its UI defaults defined in code rather than in a properties file.
+ * Nothing about it matches the names the extension used to look for, so it only works if the
+ * extension discovers Burp's classes from the look and feel that is actually running.
  */
-public class BurpLaf extends FlatLaf {
+public class PortSwiggerTheme extends FlatLaf {
 
     @Override
     public String getName() {
-        return "Burp";
+        return "PortSwigger";
     }
 
     @Override
     public String getDescription() {
-        return "Burp stand-in";
+        return "Modern Burp stand-in";
     }
 
     @Override
@@ -38,9 +36,9 @@ public class BurpLaf extends FlatLaf {
         lafClasses.add(FlatLaf.class);
         lafClasses.add(isDark() ? FlatDarkLaf.class : FlatLightLaf.class);
         //Burp can see its own palette; the extension has no way to find it.
-        lafClasses.add(BurpColors.class);
-        lafClasses.add(BurpLaf.class);
-        if (getClass() != BurpLaf.class) lafClasses.add(getClass());
+        lafClasses.add(PortSwiggerColors.class);
+        lafClasses.add(PortSwiggerTheme.class);
+        if (getClass() != PortSwiggerTheme.class) lafClasses.add(getClass());
         return lafClasses;
     }
 }

@@ -1,6 +1,7 @@
 package com.coreyd97.burpcustomizer;
 
 import com.formdev.flatlaf.FlatDefaultsAddon;
+import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.util.SystemInfo;
 
@@ -12,6 +13,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -38,23 +40,220 @@ import java.util.regex.Pattern;
  */
 public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
-    private static final String BURP_LAF_CLASS = "burp.theme.BurpLaf";
-    private static final String BURP_DARK_LAF_CLASS = "burp.theme.BurpDarkLaf";
-    private static final String BURP_LIGHT_LAF_CLASS = "burp.theme.BurpLightLaf";
+    /**
+     * The names Burp's look and feel classes have historically had. Modern Burp releases are
+     * discovered from the running look and feel instead, so these are only a fallback for
+     * versions where the extension is initialised without one.
+     */
+    private static final String[] LEGACY_BURP_LAF_CLASSES = {
+            "burp.theme.BurpLaf", "burp.theme.BurpDarkLaf", "burp.theme.BurpLightLaf",
+    };
 
     /**
-     * A class loader known to see Burp's internal classes, registered by {@link ThemeManager}.
-     * Burp is not necessarily visible from the system class loader, so we cannot rely on it.
+     * Packages Burp's own classes live in. Used to pick Burp's classes out of the running
+     * look and feel's hierarchy without depending on any particular class name.
      */
-    private static volatile ClassLoader burpClassLoaderHint;
+    private static final String[] BURP_PACKAGE_PREFIXES = {"burp.", "com.portswigger."};
+
+    /**
+     * A {@code $property} or {@code @variable} reference inside a properties value. FlatLaf
+     * only resolves one at the start of a value or of a function argument, so a '$' anywhere
+     * else - notably the one in an inner class name such as
+     * {@code com.formdev.flatlaf.ui.FlatRootPaneUI$FlatWindowBorder} - is part of the value.
+     * {@code $?name} is optional: FlatLaf resolves it to null instead of failing.
+     */
+    private static final Pattern PROPERTY_REFERENCE = Pattern.compile("(?:^|[(,])\\s*([$@])(\\??)([A-Za-z0-9_.\\[\\]-]+)");
+
+    /**
+     * Burp's look and feel as it was before the extension touched anything, captured during
+     * initialisation. It is the only reliable handle on both the classes Burp's UI defaults
+     * live in and the class loader which can see them.
+     */
+    private static volatile LookAndFeel burpLookAndFeel;
+    private static volatile BurpDefaults burpDefaults = BurpDefaults.none();
     private static volatile BurpLafClasses burpLafClasses;
-    private static volatile boolean burpLafLookupFailureLogged;
+    private static volatile boolean burpLafDiscoveryDone;
 
     /**
-     * A {@code $property} or {@code @variable} reference inside a properties value.
-     * {@code $?name} is optional - FlatLaf resolves it to null instead of failing.
+     * Registers Burp's own look and feel and captures the UI defaults it has installed.
+     * Must be called while Burp's look and feel is still installed, i.e. during extension
+     * initialisation and before any theme is applied.
      */
-    private static final Pattern PROPERTY_REFERENCE = Pattern.compile("([$@])(\\??)([A-Za-z0-9_.\\[\\]-]+)");
+    public static synchronized void setBurpLookAndFeel(LookAndFeel lookAndFeel) {
+        burpLookAndFeel = lookAndFeel;
+        burpLafClasses = null;
+        burpLafDiscoveryDone = false;
+        burpDefaults = BurpDefaults.captureFromInstalledLookAndFeel();
+    }
+
+    /**
+     * The classes Burp keeps its UI defaults in, or null if they cannot be found. A miss is
+     * never fatal: the defaults captured before theming are re-expressed in the theme's own
+     * palette instead.
+     */
+    private static synchronized BurpLafClasses getBurpLafClasses() {
+        if (burpLafDiscoveryDone) return burpLafClasses;
+        burpLafDiscoveryDone = true;
+        burpLafClasses = discoverBurpLafClasses();
+        logDiscovery();
+        return burpLafClasses;
+    }
+
+    private static BurpLafClasses discoverBurpLafClasses() {
+        //Burp's own look and feel is the authority on both where its defaults live and which
+        //class loader can see them, whatever the classes happen to be called in this release.
+        LookAndFeel lookAndFeel = burpLookAndFeel;
+        if (lookAndFeel != null) {
+            List<Class<?>> hierarchy = burpClassesIn(lookAndFeel.getClass());
+            if (!hierarchy.isEmpty()) {
+                Class<?> mostSpecific = hierarchy.get(hierarchy.size() - 1);
+                Class<?> opposite = oppositePolarityClass(mostSpecific);
+                boolean specificIsDark = lookAndFeel instanceof FlatLaf flatLaf
+                        ? flatLaf.isDark()
+                        : mostSpecific.getSimpleName().toLowerCase(Locale.ROOT).contains("dark");
+
+                return new BurpLafClasses(
+                        hierarchy.subList(0, hierarchy.size() - 1),
+                        specificIsDark ? mostSpecific : opposite,
+                        specificIsDark ? opposite : mostSpecific,
+                        "the running look and feel " + lookAndFeel.getClass().getName());
+            }
+        }
+
+        //Older Burp releases, or an extension loaded without a look and feel to inspect.
+        for (ClassLoader classLoader : candidateClassLoaders()) {
+            if (classLoader == null) continue;
+            try {
+                return new BurpLafClasses(
+                        List.of(classLoader.loadClass(LEGACY_BURP_LAF_CLASSES[0])),
+                        classLoader.loadClass(LEGACY_BURP_LAF_CLASSES[1]),
+                        classLoader.loadClass(LEGACY_BURP_LAF_CLASSES[2]),
+                        "the class names used by older Burp releases");
+            } catch (ClassNotFoundException | LinkageError ignored) {
+                //Try the next candidate.
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Burp's own classes in the hierarchy of the given class, least specific first.
+     */
+    private static List<Class<?>> burpClassesIn(Class<?> lookAndFeelClass) {
+        ArrayList<Class<?>> burpClasses = new ArrayList<>();
+        for (Class<?> current = lookAndFeelClass; current != null && current != Object.class; current = current.getSuperclass()) {
+            if (isBurpClass(current)) burpClasses.add(0, current);
+        }
+        return burpClasses;
+    }
+
+    private static boolean isBurpClass(Class<?> candidate) {
+        for (String prefix : BURP_PACKAGE_PREFIXES) {
+            if (candidate.getName().startsWith(prefix)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The dark counterpart of a light look and feel class, or vice versa, if Burp ships one
+     * under the matching name. Burp's own look and feel only tells us about the polarity Burp
+     * is currently using, and a theme may be the other one.
+     */
+    private static Class<?> oppositePolarityClass(Class<?> lookAndFeelClass) {
+        String name = lookAndFeelClass.getName();
+        String opposite = name.contains("Dark") ? name.replace("Dark", "Light")
+                : name.contains("Light") ? name.replace("Light", "Dark")
+                : null;
+        if (opposite == null) return null;
+
+        try {
+            return Class.forName(opposite, false, lookAndFeelClass.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
+    private static List<ClassLoader> candidateClassLoaders() {
+        LookAndFeel burpLaf = burpLookAndFeel;
+        LookAndFeel currentLookAndFeel = UIManager.getLookAndFeel();
+        return Arrays.asList(
+                burpLaf != null ? burpLaf.getClass().getClassLoader() : null,
+                currentLookAndFeel != null ? currentLookAndFeel.getClass().getClassLoader() : null,
+                CustomTheme.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
+                ClassLoader.getSystemClassLoader());
+    }
+
+    /**
+     * Reports what was found, so a Burp release which moves its look and feel can be
+     * diagnosed from the extension's log rather than guessed at.
+     */
+    private static void logDiscovery() {
+        String report = describeBurpLookAndFeel();
+        if (burpLafClasses == null && burpDefaults.size() == 0) BurpCustomizer.logError(report, null);
+        else BurpCustomizer.logOutput(report);
+    }
+
+    /**
+     * What the extension found when it inspected Burp: the look and feel that was running,
+     * where it came from, and which of its classes and defaults are being used.
+     */
+    static String describeBurpLookAndFeel() {
+        LookAndFeel lookAndFeel = burpLookAndFeel;
+        StringBuilder report = new StringBuilder("Burp Customizer: inspecting Burp's look and feel\n");
+        if (lookAndFeel == null) {
+            report.append("  active look and feel: none captured (the extension was initialised without one)\n");
+        } else {
+            Class<?> lafClass = lookAndFeel.getClass();
+            report.append("  active look and feel: ").append(lafClass.getName())
+                    .append(" (\"").append(safeName(lookAndFeel)).append("\")\n");
+            report.append("  class loader: ").append(describe(lafClass.getClassLoader())).append('\n');
+            report.append("  superclasses: ").append(superclassNames(lafClass)).append('\n');
+        }
+
+        BurpLafClasses found = burpLafClasses;
+        if (found != null) {
+            report.append("  Burp defaults classes: ").append(found.describe())
+                    .append(" (found via ").append(found.source()).append(")\n");
+        } else {
+            report.append("  Burp defaults classes: not found\n");
+        }
+        report.append("  Burp specific defaults captured before theming: ").append(burpDefaults.size());
+
+        if (found == null && burpDefaults.size() == 0)
+            report.append("\n  Burp specific components may not match the theme: neither Burp's defaults "
+                    + "classes nor its installed defaults could be read.");
+        else if (found == null)
+            report.append("\n  Burp specific UI defaults will be derived from each theme's own palette.");
+
+        return report.toString();
+    }
+
+    private static String safeName(LookAndFeel lookAndFeel) {
+        try {
+            return String.valueOf(lookAndFeel.getName());
+        } catch (RuntimeException e) {
+            return "unknown";
+        }
+    }
+
+    private static String superclassNames(Class<?> type) {
+        StringBuilder names = new StringBuilder();
+        for (Class<?> current = type.getSuperclass(); current != null; current = current.getSuperclass()) {
+            if (names.length() > 0) names.append(" <- ");
+            names.append(current.getName());
+        }
+        return names.length() > 0 ? names.toString() : "(none)";
+    }
+
+    private static String describe(ClassLoader classLoader) {
+        if (classLoader == null) return "bootstrap class loader";
+        String name = classLoader.getName();
+        return classLoader.getClass().getName()
+                + (name != null ? " [" + name + "]" : "")
+                + "@" + Integer.toHexString(System.identityHashCode(classLoader));
+    }
 
     /**
      * Set for themes built for the (currently disabled) live preview panel rather than
@@ -73,74 +272,35 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
         this.isPreview = isPreview;
     }
 
-    /**
-     * Registers a class loader which is known to see Burp's classes - in practice the one
-     * which loaded Burp's own look and feel.
-     */
-    public static void setBurpClassLoaderHint(ClassLoader classLoader) {
-        if (classLoader == null || classLoader.equals(burpClassLoaderHint)) return;
-        burpClassLoaderHint = classLoader;
-        burpLafClasses = null;
-        burpLafLookupFailureLogged = false;
-    }
-
-    /**
-     * Burp's look and feel classes, or null when they cannot be found. Modern Burp releases
-     * do not necessarily expose them to the system class loader, and previews may be built
-     * before Burp's UI exists at all, so a miss must not be fatal.
-     */
-    private static BurpLafClasses getBurpLafClasses() {
-        BurpLafClasses cached = burpLafClasses;
-        if (cached != null) return cached;
-
-        for (ClassLoader classLoader : candidateClassLoaders()) {
-            if (classLoader == null) continue;
-            try {
-                BurpLafClasses found = new BurpLafClasses(
-                        classLoader.loadClass(BURP_LAF_CLASS),
-                        classLoader.loadClass(BURP_DARK_LAF_CLASS),
-                        classLoader.loadClass(BURP_LIGHT_LAF_CLASS));
-                burpLafClasses = found;
-                return found;
-            } catch (ClassNotFoundException | LinkageError ignored) {
-                // Try the next candidate.
-            }
-        }
-
-        if (!burpLafLookupFailureLogged) {
-            burpLafLookupFailureLogged = true;
-            BurpCustomizer.logError("Could not find Burp's theme classes (" + BURP_LAF_CLASS + "). " +
-                    "The theme will be applied without Burp's own UI defaults, so some Burp specific " +
-                    "components may not match the theme.", null);
-        }
-        return null;
-    }
-
-    private static List<ClassLoader> candidateClassLoaders() {
-        LookAndFeel currentLookAndFeel = UIManager.getLookAndFeel();
-        return Arrays.asList(
-                burpClassLoaderHint,
-                currentLookAndFeel != null ? currentLookAndFeel.getClass().getClassLoader() : null,
-                CustomTheme.class.getClassLoader(),
-                Thread.currentThread().getContextClassLoader(),
-                ClassLoader.getSystemClassLoader());
-    }
-
     @Override
     protected ArrayList<Class<?>> getLafClassesForDefaultsLoading() {
         ArrayList<Class<?>> lafClasses = super.getLafClassesForDefaultsLoading();
         if (burpDefaultsDisabled) return lafClasses;
+
         BurpLafClasses burpClasses = getBurpLafClasses();
         if (burpClasses == null) return lafClasses;
 
-        // Burp's defaults are loaded after FlatLaf's, so the theme's own values (applied
-        // afterwards from the theme json) still win.
-        lafClasses.add(burpClasses.base);
-        lafClasses.add(isDark() ? burpClasses.dark : burpClasses.light);
+        //Burp's defaults are loaded after FlatLaf's, so the theme's own values (applied
+        //afterwards from the theme json) still win. Only the variant matching this theme's
+        //polarity is loaded - Burp's other one would bring the wrong colours, and anything it
+        //would have defined is derived from the theme instead.
+        for (Class<?> shared : burpClasses.shared()) {
+            if (!lafClasses.contains(shared)) lafClasses.add(shared);
+        }
+        Class<?> polarity = isDark() ? burpClasses.dark() : burpClasses.light();
+        if (polarity != null && !lafClasses.contains(polarity)) lafClasses.add(polarity);
         return lafClasses;
     }
 
-    private record BurpLafClasses(Class<?> base, Class<?> dark, Class<?> light) {
+    private record BurpLafClasses(List<Class<?>> shared, Class<?> dark, Class<?> light, String source) {
+
+        String describe() {
+            List<String> names = new ArrayList<>();
+            for (Class<?> shared : shared()) names.add(shared.getName());
+            if (dark != null) names.add(dark.getName() + " (dark)");
+            if (light != null) names.add(light.getName() + " (light)");
+            return names.isEmpty() ? "(none)" : String.join(", ", names);
+        }
     }
 
     /**
@@ -150,16 +310,27 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
      */
     @Override
     public UIDefaults getDefaults() {
+        UIDefaults defaults;
         try {
-            return super.getDefaults();
+            defaults = super.getDefaults();
         } catch (RuntimeException e) {
             if (burpDefaultsDisabled) throw e;
             burpDefaultsDisabled = true;
             BurpCustomizer.logError("Burp's own UI defaults could not be applied to the theme \"" + getName()
-                    + "\" (" + e.getMessage() + "). Applying the theme without them - Burp specific components "
-                    + "may not match the theme.", e);
-            return super.getDefaults();
+                    + "\" (" + e.getMessage() + "). Applying the theme without them - the values Burp had before "
+                    + "theming will be derived from the theme instead.", e);
+            defaults = super.getDefaults();
         }
+
+        //Whatever Burp's defaults did not provide - because its classes could not be found,
+        //because this theme is the other polarity, or because a newer Burp keeps them
+        //somewhere else - is re-expressed in this theme's palette so it stays readable.
+        int derived = burpDefaults.applyMissingTo(defaults);
+        if (derived > 0 && !isPreview)
+            BurpCustomizer.logOutput("Burp Customizer: derived " + derived + " Burp specific UI default(s) from the "
+                    + "theme \"" + getName() + "\".");
+
+        return defaults;
     }
 
     @Override
@@ -208,8 +379,11 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
         collectDefinedKeys(ownDefaults, defined);
 
         Properties fallbacks = new Properties();
-        for (Object value : properties.values()) {
-            Matcher matcher = PROPERTY_REFERENCE.matcher((String) value);
+        for (Map.Entry<Object, Object> property : properties.entrySet()) {
+            //A reference inside a key which does not apply here is never resolved either.
+            if (effectiveKey((String) property.getKey()) == null) continue;
+
+            Matcher matcher = PROPERTY_REFERENCE.matcher((String) property.getValue());
             while (matcher.find()) {
                 boolean optional = !matcher.group(2).isEmpty();
                 //A variable reference keeps its '@', a property reference drops its '$'.
