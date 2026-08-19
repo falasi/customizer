@@ -1,74 +1,115 @@
 package com.coreyd97.burpcustomizer;
 
-import burp.theme.BurpLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 
-import java.awt.Color;
-import java.lang.reflect.InvocationTargetException;
 import javax.swing.*;
-import java.rmi.server.UID;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Properties;
 
+/**
+ * A FlatLaf IntelliJ theme with Burp's own UI properties layered on top.
+ * <p>
+ * Burp extends FlatLaf with a large number of custom UI defaults (the {@code Burp.*},
+ * {@code ColourPalette.*} and {@code DesignSystemPalette.*} keys). Those defaults live in
+ * property files next to Burp's own look and feel classes, so we load them before the
+ * theme's own values and then map the theme's colours onto the Burp specific keys in
+ * {@link #getAdditionalDefaults()}.
+ */
 public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
-    Class burpLaf, burpDark, burpLight;
+    private static final String BURP_LAF_CLASS = "burp.theme.BurpLaf";
+    private static final String BURP_DARK_LAF_CLASS = "burp.theme.BurpDarkLaf";
+    private static final String BURP_LIGHT_LAF_CLASS = "burp.theme.BurpLightLaf";
+
+    /**
+     * A class loader known to see Burp's internal classes, registered by {@link ThemeManager}.
+     * Burp is not necessarily visible from the system class loader, so we cannot rely on it.
+     */
+    private static volatile ClassLoader burpClassLoaderHint;
+    private static volatile BurpLafClasses burpLafClasses;
+    private static volatile boolean burpLafLookupFailureLogged;
+
+    /**
+     * Set for themes built for the (currently disabled) live preview panel rather than
+     * for Burp itself.
+     */
     private final boolean isPreview;
 
     public CustomTheme(IntelliJTheme.ThemeLaf base, boolean isPreview) {
         super(base.getTheme());
         this.isPreview = isPreview;
-        try {
-            this.burpLaf = ClassLoader.getSystemClassLoader().loadClass("burp.theme.BurpLaf");
-            this.burpDark = ClassLoader.getSystemClassLoader().loadClass("burp.theme.BurpDarkLaf");
-            this.burpLight = ClassLoader.getSystemClassLoader().loadClass("burp.theme.BurpLightLaf");
-        }catch (Exception e){
-            throw new RuntimeException("Cannot find required Burp themes. " +
-                    "This shouldn't happen as we shouldn't try to switch the theme if it's not supported.");
+    }
+
+    /**
+     * Registers a class loader which is known to see Burp's classes - in practice the one
+     * which loaded Burp's own look and feel.
+     */
+    public static void setBurpClassLoaderHint(ClassLoader classLoader) {
+        if (classLoader == null || classLoader.equals(burpClassLoaderHint)) return;
+        burpClassLoaderHint = classLoader;
+        burpLafClasses = null;
+        burpLafLookupFailureLogged = false;
+    }
+
+    /**
+     * Burp's look and feel classes, or null when they cannot be found. Modern Burp releases
+     * do not necessarily expose them to the system class loader, and previews may be built
+     * before Burp's UI exists at all, so a miss must not be fatal.
+     */
+    private static BurpLafClasses getBurpLafClasses() {
+        BurpLafClasses cached = burpLafClasses;
+        if (cached != null) return cached;
+
+        for (ClassLoader classLoader : candidateClassLoaders()) {
+            if (classLoader == null) continue;
+            try {
+                BurpLafClasses found = new BurpLafClasses(
+                        classLoader.loadClass(BURP_LAF_CLASS),
+                        classLoader.loadClass(BURP_DARK_LAF_CLASS),
+                        classLoader.loadClass(BURP_LIGHT_LAF_CLASS));
+                burpLafClasses = found;
+                return found;
+            } catch (ClassNotFoundException | LinkageError ignored) {
+                // Try the next candidate.
+            }
         }
+
+        if (!burpLafLookupFailureLogged) {
+            burpLafLookupFailureLogged = true;
+            BurpCustomizer.logError("Could not find Burp's theme classes (" + BURP_LAF_CLASS + "). " +
+                    "The theme will be applied without Burp's own UI defaults, so some Burp specific " +
+                    "components may not match the theme.", null);
+        }
+        return null;
+    }
+
+    private static List<ClassLoader> candidateClassLoaders() {
+        LookAndFeel currentLookAndFeel = UIManager.getLookAndFeel();
+        return Arrays.asList(
+                burpClassLoaderHint,
+                currentLookAndFeel != null ? currentLookAndFeel.getClass().getClassLoader() : null,
+                CustomTheme.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
+                ClassLoader.getSystemClassLoader());
     }
 
     @Override
     protected ArrayList<Class<?>> getLafClassesForDefaultsLoading() {
         ArrayList<Class<?>> lafClasses = super.getLafClassesForDefaultsLoading();
-        lafClasses.remove(this.getTheme().getClass());
-        lafClasses.add(burpLaf);
-        if(isDark()) lafClasses.add(burpDark);
-        else         lafClasses.add(burpLight);
-        lafClasses.add(this.getTheme().getClass());
+        BurpLafClasses burpClasses = getBurpLafClasses();
+        if (burpClasses == null) return lafClasses;
+
+        // Burp's defaults are loaded after FlatLaf's, so the theme's own values (applied
+        // afterwards from the theme json) still win.
+        lafClasses.add(burpClasses.base);
+        lafClasses.add(isDark() ? burpClasses.dark : burpClasses.light);
         return lafClasses;
     }
 
-    @Override
-    public UIDefaults getDefaults() {
-        return super.getDefaults();
-//        UIDefaults defaults;
-//        FlatLaf burpBase;
-//        try {
-//            if (isDark()) {
-//                burpBase = (FlatLaf) burpDark.getConstructor().newInstance();
-//            }else{
-//                burpBase = (FlatLaf) burpLight.getConstructor().newInstance();
-//            }
-//            defaults = burpBase.getDefaults();
-//
-//        }catch (Exception e){
-//            defaults = super.getDefaults();
-//            BurpCustomizer.montoya.logging().logToError("Could not get Burp base theme! - " + e.getMessage());
-//        }
-//
-//        UIDefaults themeDefaults = super.getDefaults();
-//        themeDefaults.entrySet().parallelStream()
-//                .filter(e -> e.getKey().toString().matches("\\w+UI$")) //Find UI delegates
-//                        .forEach(e -> themeDefaults.remove(e.getKey())); //And remove so we don't overwrite them from burp.
-//
-//        defaults.putAll(themeDefaults);
-//        //For some reason, using lazy loading in getAdditionalDefaults for this property causes issues...
-//        defaults.put("TabbedPane.selectedBackground", defaults.get("TabbedPane.background"));
-//        return defaults;
+    private record BurpLafClasses(Class<?> base, Class<?> dark, Class<?> light) {
     }
-
-
 
     @Override
     protected Properties getAdditionalDefaults() {

@@ -6,6 +6,10 @@ plugins {
 sourceCompatibility = JavaVersion.VERSION_21
 targetCompatibility = JavaVersion.VERSION_21
 
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
 repositories {
     mavenCentral()
     maven {
@@ -23,6 +27,8 @@ dependencies {
     compileOnly files('burpsuite_pro.jar')
 }
 
+//Fat jar. burpsuite_pro.jar and flatlaf are compileOnly, so they are never packaged;
+//flatlaf-extras is packaged because Burp does not reliably expose it to extensions.
 jar {
     archiveBaseName = project.name
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
