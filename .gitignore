@@ -6,3 +6,4 @@ out/
 releases/
 *.json
 *.iml
+burpsuite_pro.jar
