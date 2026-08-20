@@ -64,6 +64,10 @@ public class PortSwiggerDarkTheme extends PortSwiggerTheme {
         defaults.put("Burp.primaryButtonBackground", new ColorUIResource(0xe8613c));
         defaults.put("Burp.collapsibleSidebarSelectedLabelBackground", new ColorUIResource(0xff6633));
 
+        //Keys whose name says Background. They name a surface, not the text on it.
+        defaults.put("Burp.textEditorBackground", new ColorUIResource(0x1e1e1e));
+        defaults.put("Burp.textEditorCurrentLineBackground", new ColorUIResource(0x323232));
+
         //Red because it means something. These have to stay red.
         defaults.put("Burp.issueSeverityHigh", new ColorUIResource(0xd6483b));
         defaults.put("Burp.errorForeground", new ColorUIResource(0xd6483b));
