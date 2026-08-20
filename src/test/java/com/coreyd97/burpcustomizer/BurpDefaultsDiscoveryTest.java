@@ -171,6 +171,59 @@ class BurpDefaultsDiscoveryTest {
     }
 
     /**
+     * A Burp key whose name says Background names a surface, never the text painted on it.
+     * Both of these resolved to a foreground colour - {@code Burp.textEditorBackground} to
+     * the theme's text colour and {@code Burp.collapsibleSidebarSelectedLabelBackground} to
+     * its selected text colour - which put a light colour where a dark surface belonged.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Frappé", "Catppuccin Mocha", "Catppuccin Latte", "Dracula", "Solarized Light"})
+    void burpKeysNamedBackgroundUseABackgroundProperty(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        assertEquals(defaults.getColor("TextArea.background"), defaults.get("Burp.textEditorBackground"),
+                themeName + ": an editor background should be the theme's editor surface");
+        assertEquals(defaults.getColor("List.selectionBackground"),
+                defaults.get("Burp.collapsibleSidebarSelectedLabelBackground"),
+                themeName + ": a selected label background should be the theme's selected surface");
+
+        //Nothing named Background may come out wearing one of the theme's text colours.
+        for (String key : new String[]{"Burp.textEditorBackground", "Burp.textEditorCurrentLineBackground",
+                "Burp.collapsibleSidebarSelectedLabelBackground"}) {
+            Object value = defaults.get(key);
+            assertInstanceOf(Color.class, value, themeName + ": " + key);
+            for (String foreground : new String[]{"TextArea.foreground", "TextField.foreground",
+                    "Label.foreground", "List.selectionForeground"}) {
+                assertNotEquals(defaults.getColor(foreground), value,
+                        themeName + ": " + key + " resolved to " + foreground + ", which is a text colour");
+            }
+        }
+    }
+
+    /**
+     * The two keys named outright in the theme they were reported against: Frappé's editor
+     * surface and its selected surface, rather than its light text colour (#c6d0f5).
+     */
+    @Test
+    void frappeGivesTheBackgroundKeysItsOwnSurfaces() throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, "Catppuccin Frappé"));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        assertEquals(Color.decode("#232634"), defaults.get("Burp.textEditorBackground"));
+        assertEquals(Color.decode("#51576d"), defaults.get("Burp.collapsibleSidebarSelectedLabelBackground"));
+
+        //Both are surfaces the theme's text is readable on, which is what makes them dark here.
+        Color text = defaults.getColor("Label.foreground");
+        assertTrue(BurpDefaults.contrast(text, (Color) defaults.get("Burp.textEditorBackground")) >= MINIMUM_CONTRAST,
+                "Frappé's editor surface should be dark enough to read its text on");
+        assertTrue(BurpDefaults.contrast(text, (Color) defaults.get("Burp.collapsibleSidebarSelectedLabelBackground")) >= 3.0,
+                "Frappé's selected surface should be dark enough to read its label on");
+    }
+
+    /**
      * Sizes and insets are not theme dependent, so they carry over untouched.
      */
     @Test

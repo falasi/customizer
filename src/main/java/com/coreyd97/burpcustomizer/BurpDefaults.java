@@ -279,12 +279,20 @@ final class BurpDefaults {
         if (containsAny(name, "accent", "orange", "highlight", "underline", "active", "flash", "primary"))
             return Role.ACCENT;
         if (isForegroundName(name)) return Role.FOREGROUND;
-        if (containsAny(name, "background", "fill")) return Role.BACKGROUND;
+        if (isBackgroundName(name)) return Role.BACKGROUND;
         return Role.UNKNOWN;
     }
 
     private static boolean isForegroundName(String name) {
-        return containsAny(name, "foreground", "text", "caret", "label", "title");
+        //A key which says Background names the surface, whatever else its name mentions:
+        //...textEditorBackground is the editor's surface rather than the text painted on it,
+        //and ...SelectedLabelBackground is the selected row rather than its label's colour.
+        return !isBackgroundName(name)
+                && containsAny(name, "foreground", "text", "caret", "label", "title");
+    }
+
+    private static boolean isBackgroundName(String name) {
+        return containsAny(name, "background", "fill");
     }
 
     private static boolean isPaletteEntryName(String name) {
@@ -359,7 +367,10 @@ final class BurpDefaults {
          * The theme keys for a surface, in the order the key's name points at.
          */
         private String[] surfaceKeys(String name, String suffix) {
-            String surface = containsAny(name, "editor", "textinput", "textfield", "search", "input", "message") ? "TextField"
+            //An editor is a multi line surface, so it takes its colours from TextArea rather
+            //than from the single line TextField.
+            String surface = name.contains("editor") ? "TextArea"
+                    : containsAny(name, "textinput", "textfield", "search", "input", "message") ? "TextField"
                     : containsAny(name, "table", "row", "grid", "cell") ? "Table"
                     : name.contains("list") ? "List"
                     : name.contains("tree") ? "Tree"
