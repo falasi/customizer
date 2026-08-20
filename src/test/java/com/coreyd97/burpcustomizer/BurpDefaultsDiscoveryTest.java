@@ -10,6 +10,8 @@ import javax.swing.*;
 import javax.swing.plaf.metal.MetalLookAndFeel;
 import java.awt.Color;
 import java.awt.Insets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -177,6 +179,94 @@ class BurpDefaultsDiscoveryTest {
         themeManager.applyBundledTheme(theme(themeManager, "Catppuccin Mocha"));
 
         assertEquals(new Insets(2, 8, 2, 8), UIManager.getLookAndFeelDefaults().get("Burp.tabInsets"));
+    }
+
+    /**
+     * A Burp key which points at one of Burp's own brand colours must come out as the theme's
+     * accent, not as Burp orange.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Mocha", "Catppuccin Latte"})
+    void unresolvedBrandChromeBecomesTheThemeAccent(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        Color accent = defaults.getColor("Component.accentColor");
+        assertNotNull(accent, "the theme should define an accent colour");
+
+        for (String key : new String[]{"Burp.modernAccentBar", "Burp.modernFocusRing", "Burp.burpOrange",
+                "Burp.tabFlashColour", "Burp.primaryButtonBackground"}) {
+            assertEquals(accent, defaults.get(key),
+                    themeName + ": " + key + " should be the theme's accent, was " + defaults.get(key));
+        }
+    }
+
+    /**
+     * Red that means something stays red - the theme's red, not Burp's, and not the accent.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Mocha", "Catppuccin Latte"})
+    void stateColoursKeepTheirMeaning(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        Color accent = defaults.getColor("Component.accentColor");
+        Color themeError = defaults.getColor("Component.error.focusedBorderColor");
+        Color themeWarning = defaults.getColor("Component.warning.focusedBorderColor");
+
+        assertEquals(themeError, defaults.get("Burp.modernErrorForeground"), themeName + ": error foreground");
+        assertEquals(themeError, defaults.get("Burp.errorForeground"), themeName + ": error foreground");
+        assertEquals(themeWarning, defaults.get("Burp.warningForeground"), themeName + ": warning foreground");
+        assertNotEquals(accent, defaults.get("Burp.errorForeground"), themeName + ": an error is not an accent");
+
+        //A scanner severity is a state, so it keeps its own hue rather than becoming chrome.
+        Color severity = (Color) defaults.get("Burp.issueSeverityHigh");
+        assertNotNull(severity);
+        float hue = Color.RGBtoHSB(severity.getRed(), severity.getGreen(), severity.getBlue(), null)[0] * 360f;
+        assertTrue(hue <= 45f || hue >= 345f, themeName + ": Burp.issueSeverityHigh stopped being red, hue " + hue);
+    }
+
+    /**
+     * Nothing Burp uses as ordinary chrome may come through theming still wearing Burp's
+     * branding colour.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Mocha", "Catppuccin Latte"})
+    void noBrandingColoursSurviveInChromeKeys(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+
+        List<String> remaining = CustomTheme.brandColouredBurpKeys(UIManager.getLookAndFeelDefaults());
+        assertTrue(remaining.isEmpty(),
+                themeName + ": Burp branding colours left in chrome keys (key -> Burp value -> themed value): " + remaining);
+    }
+
+    /**
+     * The failure this was reported as: a Burp property referencing one of Burp's own
+     * variables, contributed from somewhere the extension cannot read - here an application
+     * defaults source, in Burp an addon or its own theme. Burp's defaults must survive it.
+     */
+    @Test
+    void referencesFromSourcesTheScannerCannotReadDoNotCostBurpsDefaults() throws Exception {
+        Path folder = Files.createTempDirectory("custom-defaults");
+        Files.writeString(folder.resolve("PortSwiggerTheme.properties"),
+                "Burp.applicationSuppliedAccent = @Colors.swatches.black.core\n");
+        com.formdev.flatlaf.FlatLaf.registerCustomDefaultsSource(folder.toFile());
+        try {
+            ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+            themeManager.applyBundledTheme(theme(themeManager, "Catppuccin Macchiato"));
+            UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+            assertInstanceOf(Color.class, defaults.get("Burp.applicationSuppliedAccent"),
+                    "the unresolvable reference should have been resolved against the theme");
+            assertEquals(defaults.getColor("Component.accentColor"), defaults.get("Burp.applicationSuppliedAccent"));
+            assertEquals("dark", defaults.get("Burp.modernPolarity"),
+                    "Burp's own defaults should still have been loaded");
+        } finally {
+            com.formdev.flatlaf.FlatLaf.unregisterCustomDefaultsSource(folder.toFile());
+        }
     }
 
     /**

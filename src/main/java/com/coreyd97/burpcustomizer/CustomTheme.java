@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -54,6 +55,18 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
      * look and feel's hierarchy without depending on any particular class name.
      */
     private static final String[] BURP_PACKAGE_PREFIXES = {"burp.", "com.portswigger."};
+
+    /**
+     * How FlatLaf names the reference it could not resolve while loading properties.
+     */
+    private static final Pattern MISSING_REFERENCE_MESSAGE =
+            Pattern.compile("variable or property '([^']+)' not found");
+
+    /**
+     * A cap on how many times loading Burp's defaults is retried, so a look and feel which
+     * keeps producing new failures cannot spin.
+     */
+    private static final int MAX_LEARNED_REFERENCES = 64;
 
     /**
      * A {@code $property} or {@code @variable} reference inside a properties value. FlatLaf
@@ -267,6 +280,14 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
      */
     private boolean burpDefaultsDisabled;
 
+    /**
+     * References Burp makes which nothing defines, learned from FlatLaf as it rejects them.
+     * The scanner catches these from the properties files it can read; anything contributed
+     * from somewhere else - an addon, an application defaults source - only shows up when
+     * FlatLaf refuses it, so it is added here and the load is retried.
+     */
+    private final Set<String> learnedMissingReferences = new LinkedHashSet<>();
+
     public CustomTheme(IntelliJTheme.ThemeLaf base, boolean isPreview) {
         super(base.getTheme());
         this.isPreview = isPreview;
@@ -305,41 +326,84 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
     /**
      * Burp's defaults must never be able to take the whole look and feel down with them.
-     * If they cannot be loaded - an unresolvable reference, a property FlatLaf refuses -
-     * the theme is loaded again without them and the failure is logged.
+     * A reference Burp makes which this theme does not provide is learned and the load is
+     * retried, so Burp's own defaults keep being used; only if that stops making progress are
+     * they dropped, and even then the values Burp had are resolved against the theme.
      */
     @Override
     public UIDefaults getDefaults() {
-        UIDefaults defaults;
-        try {
-            defaults = super.getDefaults();
-        } catch (RuntimeException e) {
-            if (burpDefaultsDisabled) throw e;
-            burpDefaultsDisabled = true;
-            BurpCustomizer.logError("Burp's own UI defaults could not be applied to the theme \"" + getName()
-                    + "\" (" + e.getMessage() + "). Applying the theme without them - the values Burp had before "
-                    + "theming will be derived from the theme instead.", e);
-            defaults = super.getDefaults();
+        while (true) {
+            try {
+                return withBurpDefaults(super.getDefaults());
+            } catch (RuntimeException e) {
+                if (learnMissingReference(e)) continue;
+                if (burpDefaultsDisabled) throw e;
+
+                burpDefaultsDisabled = true;
+                BurpCustomizer.logError("Burp's own UI defaults could not be applied to the theme \"" + getName()
+                        + "\" (" + e.getMessage() + "). Applying the theme without them - the values Burp had before "
+                        + "theming will be resolved against the theme instead.", e);
+                return withBurpDefaults(super.getDefaults());
+            }
+        }
+    }
+
+    /**
+     * Gives every Burp key which did not survive theming a value from the theme, and reports
+     * anything still carrying Burp's own branding so it can be tracked down.
+     */
+    private UIDefaults withBurpDefaults(UIDefaults defaults) {
+        int resolved = burpDefaults.applyTo(defaults);
+        if (resolved > 0 && !isPreview)
+            BurpCustomizer.logOutput("Burp Customizer: resolved " + resolved + " Burp specific UI default(s) against "
+                    + "the theme \"" + getName() + "\".");
+
+        if (!isPreview) {
+            List<String> branded = burpDefaults.brandColouredKeysAfterTheming(defaults);
+            if (!branded.isEmpty())
+                BurpCustomizer.logOutput("Burp Customizer: Burp UI defaults still using Burp's own branding colour "
+                        + "under \"" + getName() + "\" (key -> Burp value -> themed value):\n  "
+                        + String.join("\n  ", branded));
         }
 
-        //Whatever Burp's defaults did not provide - because its classes could not be found,
-        //because this theme is the other polarity, or because a newer Burp keeps them
-        //somewhere else - is re-expressed in this theme's palette so it stays readable.
-        int derived = burpDefaults.applyMissingTo(defaults);
-        if (derived > 0 && !isPreview)
-            BurpCustomizer.logOutput("Burp Customizer: derived " + derived + " Burp specific UI default(s) from the "
-                    + "theme \"" + getName() + "\".");
-
         return defaults;
+    }
+
+    /**
+     * Burp keys which came through theming still wearing Burp's own branding colour, as
+     * {@code key -> Burp value -> themed value}. Useful for tracking down a component which
+     * is still painted orange in a themed Burp.
+     */
+    static List<String> brandColouredBurpKeys(UIDefaults themeDefaults) {
+        return burpDefaults.brandColouredKeysAfterTheming(themeDefaults);
+    }
+
+    /**
+     * Takes the name of an unresolvable reference out of FlatLaf's complaint, so it can be
+     * defined and the load retried.
+     *
+     * @return true if something new was learned and retrying is worthwhile
+     */
+    private boolean learnMissingReference(RuntimeException e) {
+        if (burpDefaultsDisabled || learnedMissingReferences.size() >= MAX_LEARNED_REFERENCES) return false;
+
+        String message = e.getMessage();
+        if (message == null) return false;
+        Matcher matcher = MISSING_REFERENCE_MESSAGE.matcher(message);
+        if (!matcher.find()) return false;
+
+        return learnedMissingReferences.add(matcher.group(1));
     }
 
     @Override
     protected Properties getAdditionalDefaults() {
         Properties defaults = new Properties();
         Properties burpOverrides = getBurpOverrides();
-        //Fallbacks first: anything Burp genuinely defines, and every override below,
+        //Placeholders first: anything Burp genuinely defines, and every override below,
         //has to win over them.
         defaults.putAll(missingReferenceFallbacks(burpOverrides));
+        for (String reference : learnedMissingReferences)
+            defaults.put(reference, BurpDefaults.unresolvedPlaceholder());
         defaults.putAll(burpOverrides);
         return defaults;
     }
@@ -378,8 +442,13 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
         collectDefinedKeys(definedByAddons, defined);
         collectDefinedKeys(ownDefaults, defined);
 
+        //Addon values reference Burp's colours too, and are just as likely to be missing them.
+        Properties referencing = new Properties();
+        referencing.putAll(properties);
+        referencing.putAll(definedByAddons);
+
         Properties fallbacks = new Properties();
-        for (Map.Entry<Object, Object> property : properties.entrySet()) {
+        for (Map.Entry<Object, Object> property : referencing.entrySet()) {
             //A reference inside a key which does not apply here is never resolved either.
             if (effectiveKey((String) property.getKey()) == null) continue;
 
@@ -389,13 +458,14 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
                 //A variable reference keeps its '@', a property reference drops its '$'.
                 String key = matcher.group(1).equals("@") ? "@" + matcher.group(3) : matcher.group(3);
                 if (optional || defined.contains(key) || fallbacks.containsKey(key)) continue;
-                fallbacks.put(key, fallbackFor(key));
+                fallbacks.put(key, BurpDefaults.unresolvedPlaceholder());
             }
         }
 
         if (!fallbacks.isEmpty())
-            BurpCustomizer.logOutput("Burp Customizer: defined " + fallbacks.size() + " fallback value(s) for UI "
-                    + "properties which Burp references but this theme does not provide: " + fallbacks.keySet());
+            BurpCustomizer.logOutput("Burp Customizer: Burp references " + fallbacks.size() + " UI propertie(s) which "
+                    + "this theme does not provide; the keys using them are resolved against the theme afterwards: "
+                    + fallbacks.keySet());
 
         return fallbacks;
     }
@@ -442,24 +512,6 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
             key = key.substring(end + 1);
         }
         return key;
-    }
-
-    /**
-     * A stand-in value for a property Burp references but this theme does not define, picked
-     * from the FlatLaf variables which every theme's base (FlatDarkLaf/FlatLightLaf) defines,
-     * so it at least follows the theme's polarity. The Burp keys which actually matter are
-     * re-mapped onto the theme's own colours by {@link #getBurpOverrides()} afterwards.
-     */
-    private static String fallbackFor(String key) {
-        String name = key.toLowerCase(Locale.ROOT);
-        if (containsAny(name, "separator", "border", "divider", "grid", "outline", "line"))
-            return "@disabledForeground";
-        if (containsAny(name, "disabled", "inactive")) return "@disabledForeground";
-        if (containsAny(name, "selection", "selected")) return "@selectionBackground";
-        if (containsAny(name, "focus", "accent", "underline", "highlight", "hover", "pressed", "link"))
-            return "@accentFocusColor";
-        if (containsAny(name, "foreground", "text", "caret", "icon", "arrow")) return "@foreground";
-        return "@background";
     }
 
     private static boolean containsAny(String value, String... candidates) {

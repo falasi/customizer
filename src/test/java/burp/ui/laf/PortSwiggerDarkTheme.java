@@ -56,8 +56,19 @@ public class PortSwiggerDarkTheme extends PortSwiggerTheme {
         defaults.put("Burp.tabBackground", new ColorUIResource(0x3c3f41));
         defaults.put("Burp.tabForeground", new ColorUIResource(0xbbbbbb));
         defaults.put("Burp.disabledText", new ColorUIResource(0x777777));
-        defaults.put("Burp.burpOrange", new ColorUIResource(0xff6633));
         defaults.put("Burp.searchBarBorder", new ColorUIResource(0x5e6060));
+
+        //Burp's branding, used as ordinary chrome. None of this should survive theming.
+        defaults.put("Burp.burpOrange", new ColorUIResource(0xff6633));
+        defaults.put("Burp.tabFlashColour", new ColorUIResource(0xff6633));
+        defaults.put("Burp.primaryButtonBackground", new ColorUIResource(0xe8613c));
+        defaults.put("Burp.collapsibleSidebarSelectedLabelBackground", new ColorUIResource(0xff6633));
+
+        //Red because it means something. These have to stay red.
+        defaults.put("Burp.issueSeverityHigh", new ColorUIResource(0xd6483b));
+        defaults.put("Burp.errorForeground", new ColorUIResource(0xd6483b));
+        defaults.put("Burp.warningForeground", new ColorUIResource(0xe8a33d));
+        defaults.put("Colors.swatches.red.core", new ColorUIResource(0xd6483b));
 
         //Burp's grey ramps, which its components index into.
         for (int i = 0; i <= 8; i++)
