@@ -23,6 +23,20 @@ these themes in Burp Suite, and includes a number of bundled themes to try.
 
 [1]:https://github.com/JFormDesigner/FlatLaf/tree/main/flatlaf-intellij-themes
 
+**Themes:**
+- All of the bundled [FlatLaf IntelliJ themes][1].
+- All four [Catppuccin][2] flavours - Latte, Frappé, Macchiato and Mocha - bundled as
+  `.theme.json` resources.
+- Any IntelliJ/FlatLaf `.theme.json` (or `.json`) file from disk, via **Load Theme File...**
+  in the Customizer tab. The theme is applied immediately, and is remembered across restarts.
+
+Every theme - bundled or loaded from disk - goes through the same pipeline, so Burp's own
+custom UI properties are themed in all cases:
+
+    theme json -> FlatLaf IntelliJTheme -> Burp specific overrides -> Burp UI refresh
+
+[2]:https://catppuccin.com/palette
+
 **Images:**
 <table>
 <tr><td>Atom One Dark</td>

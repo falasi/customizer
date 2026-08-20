@@ -23,11 +23,14 @@ import java.net.URL;
 
 public class CustomizerPanel extends JPanel {
 
+    private static final String NO_CUSTOM_THEME = "No theme file loaded";
+
     private final BurpCustomizer customizer;
     JButton viewOnGithubButton;
     private File selectedThemeFile;
     public final PreviewPanel previewPanel;
     private final JComboBox<UIManager.LookAndFeelInfo> lookAndFeelSelector;
+    private final JLabel customThemeLabel;
 
     public CustomizerPanel(BurpCustomizer customizer){
         this.customizer = customizer;
@@ -103,7 +106,9 @@ public class CustomizerPanel extends JPanel {
                 "When they did, hackers rejoiced everywhere! But, some still wanted more... Until... Burp Customizer!\n\n" +
                 "Burp Suite 2020.12 replaced the old Look and Feel classes with FlatLaf, an open source Look and Feel class " +
                 "which also supports 3rd party themes developed for the IntelliJ Platform. This extension allows you to use " +
-                "these themes in Burp Suite, and includes a number of bundled themes to try.\n\n";
+                "these themes in Burp Suite, and includes a number of bundled themes to try, including all four " +
+                "Catppuccin flavours. You can also load your own IntelliJ/FlatLaf .theme.json file from disk using " +
+                "the \"Load Theme File...\" button below - it is applied immediately, no restart required.\n\n";
         String notesHeader = "Notes:\n";
         String notes = "When switching from a dark -> light theme, or vice-versa, first change Burp's theme in \"User options -> Display\" or icons will not be colored correctly.";
         String limitationsHeader = "Limitations:\n";
@@ -143,49 +148,37 @@ public class CustomizerPanel extends JPanel {
         for (UIManager.LookAndFeelInfo theme : customizer.getThemes()) {
             lookAndFeelSelector.addItem(theme);
         }
-        JLabel defaultThemeLabel = new JLabel("Default Themes: ");
+        JLabel defaultThemeLabel = new JLabel("Theme: ");
         defaultThemeLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
 
-        JButton selectFileButton = new JButton("Select Theme File...");
+        customThemeLabel = new JLabel(NO_CUSTOM_THEME);
+        customThemeLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 0));
 
         lookAndFeelSelector.addItemListener(e -> {
             if(e.getStateChange() == ItemEvent.SELECTED) {
                 selectedThemeFile = null;
-                selectFileButton.setText("Select Theme File...");
                 try{
                     LookAndFeel theme = customizer.createThemeFromDefaults((UIManager.LookAndFeelInfo) e.getItem(), true);
                     previewPanel.setPreviewTheme(theme);
-                }catch (Exception ex){
-                    ex.printStackTrace();
+                }catch (ThemeLoadException | UnsupportedLookAndFeelException ex){
+                    BurpCustomizer.logError("Could not load theme for preview.", ex);
                     previewPanel.reset();
-                    JOptionPane.showMessageDialog(CustomizerPanel.this, "Could not load the specified theme.\n" + ex.getMessage(), "Burp Customizer", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(CustomizerPanel.this, ex.getMessage(), "Burp Customizer", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
-        JLabel fileThemeLabel = new JLabel("Theme File: ");
-        fileThemeLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
-
-        selectFileButton.addActionListener(new AbstractAction() {
+        JButton loadThemeFileButton = new JButton(new AbstractAction("Load Theme File...") {
             @Override
             public void actionPerformed(ActionEvent e) {
                 JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setFileFilter(new FileNameExtensionFilter("IntelliJ Theme File (.theme.json)", "json"));
-                int res = fileChooser.showOpenDialog(CustomizerPanel.this);
-                if(res == JFileChooser.APPROVE_OPTION){
-                    selectFileButton.setText(fileChooser.getSelectedFile().getName());
-                    try {
-                        LookAndFeel theme = customizer.createThemeFromFile(fileChooser.getSelectedFile());
-                        previewPanel.setPreviewTheme(theme);
-                        selectedThemeFile = fileChooser.getSelectedFile();
-                    } catch (IOException | UnsupportedLookAndFeelException ex) {
-                        previewPanel.reset();
-                        JOptionPane.showMessageDialog(CustomizerPanel.this, "Could not load the specified theme.\n" + ex.getMessage(), "Burp Customizer", JOptionPane.ERROR_MESSAGE);
-                    }
-                    lookAndFeelSelector.setSelectedItem(null);
-                }else{
-                    selectFileButton.setText("Select Theme File...");
-                }
+                fileChooser.setFileFilter(new FileNameExtensionFilter("IntelliJ/FlatLaf Theme File (*.theme.json, *.json)", "json"));
+                if(fileChooser.showOpenDialog(CustomizerPanel.this) != JFileChooser.APPROVE_OPTION) return;
+
+                //Applied immediately - no need to press Apply, and no need to restart Burp.
+                selectedThemeFile = fileChooser.getSelectedFile();
+                lookAndFeelSelector.setSelectedItem(null);
+                customizer.setTheme(selectedThemeFile);
             }
         });
 
@@ -200,26 +193,24 @@ public class CustomizerPanel extends JPanel {
                     }else{
                         JOptionPane.showMessageDialog(CustomizerPanel.this, "No theme selected!", "Burp Customizer", JOptionPane.ERROR_MESSAGE);
                     }
-                    viewOnGithubButton.setIcon(getGithubIcon());
 //                });
             }
         });
 //        applyThemeButton.setMinimumSize(applyThemeButton.getSize());
 
-        if(customizer.getThemeSource() == BurpCustomizer.ThemeSource.BUILTIN && customizer.getSelectedBuiltIn() != null) {
+        if(customizer.getThemeSource() == ThemeManager.ThemeSource.BUILTIN && customizer.getSelectedBuiltIn() != null) {
             lookAndFeelSelector.setSelectedItem(customizer.getSelectedBuiltIn());
-        } else if(customizer.getThemeSource() == BurpCustomizer.ThemeSource.FILE && customizer.getSelectedThemeFile() != null) {
+        } else if(customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customizer.getSelectedThemeFile() != null) {
             lookAndFeelSelector.setSelectedItem(null);
-            File selectedFile = customizer.getSelectedThemeFile();
-            selectFileButton.setText(selectedFile.getName());
-            selectedThemeFile = selectedFile;
+            selectedThemeFile = customizer.getSelectedThemeFile();
         }
+        updateCustomThemeLabel();
 
         PanelBuilder selectorPanelBuilder = new PanelBuilder();
         selectorPanelBuilder.setComponentGrid(new Component[][]{
                 new Component[]{themeLabel, themeLabel},
                 new Component[]{defaultThemeLabel, lookAndFeelSelector},
-                new Component[]{fileThemeLabel, selectFileButton},
+                new Component[]{loadThemeFileButton, customThemeLabel},
                 new Component[]{previewPanel, previewPanel},
                 new Component[]{applyThemeButton, applyThemeButton},
         });
@@ -282,6 +273,26 @@ public class CustomizerPanel extends JPanel {
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
         this.add(scrollPane, BorderLayout.CENTER);
+    }
+
+    /**
+     * Called after the applied theme changed, so theme dependent parts of this panel
+     * (the GitHub logo and the loaded custom theme) stay in sync. Must be called on the EDT.
+     */
+    public void themeChanged(){
+        viewOnGithubButton.setIcon(getGithubIcon());
+        updateCustomThemeLabel();
+    }
+
+    private void updateCustomThemeLabel(){
+        String customThemeName = customizer.getThemeManager().getCustomThemeName();
+        if(customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customThemeName != null){
+            customThemeLabel.setText("Custom: " + customThemeName);
+        }else if(selectedThemeFile != null){
+            customThemeLabel.setText(selectedThemeFile.getName());
+        }else{
+            customThemeLabel.setText(NO_CUSTOM_THEME);
+        }
     }
 
     private ImageIcon getGithubIcon(){
