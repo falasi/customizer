@@ -4,8 +4,7 @@
 >
 > Releases in this repository are maintained independently and are not official PortSwigger releases.
 
-[Theme](/images/cat-burp-3.png)
-
+![Theme](/images/cat-burp-3.png)
 
 <p align="center">
   <h1 align="center">Burp Customizer</h1>
