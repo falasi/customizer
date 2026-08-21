@@ -478,6 +478,17 @@
     "ColorChooser": {
       "background": "panelBackground",
       "foreground": "text"
+    },
+    "Colors": {
+      "ui": {
+        "editor": {
+          "message": {
+            "paramValue": "teal",
+            "cookieValue": "teal",
+            "literalString": "teal"
+          }
+        }
+      }
     }
   },
   "icons": {
