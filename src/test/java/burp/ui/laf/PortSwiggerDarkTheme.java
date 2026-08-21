@@ -68,6 +68,17 @@ public class PortSwiggerDarkTheme extends PortSwiggerTheme {
         defaults.put("Burp.textEditorBackground", new ColorUIResource(0x1e1e1e));
         defaults.put("Burp.textEditorCurrentLineBackground", new ColorUIResource(0x323232));
 
+        //Burp's message editor syntax colours, which it declares as null in its properties and
+        //fills in from code, per polarity. Colours are this stand-in's own.
+        defaults.put("Colors.ui.editor.message.paramName", new ColorUIResource(0x9876aa));
+        defaults.put("Colors.ui.editor.message.paramValue", new ColorUIResource(0x93c763));
+        defaults.put("Colors.ui.editor.message.literalString", new ColorUIResource(0x93c763));
+        defaults.put("Colors.ui.editor.message.literalNumber", new ColorUIResource(0x79c1f4));
+        defaults.put("Colors.ui.editor.message.literalBoolean", new ColorUIResource(0xff9e57));
+        defaults.put("Colors.ui.editor.message.regex", new ColorUIResource(0xd1e8f9));
+        defaults.put("Colors.ui.editor.message.entityReference", new ColorUIResource(0x678cb1));
+        defaults.put("Colors.ui.editor.message.reservedWord", new ColorUIResource(0xe8bf6a));
+
         //Red because it means something. These have to stay red.
         defaults.put("Burp.issueSeverityHigh", new ColorUIResource(0xd6483b));
         defaults.put("Burp.errorForeground", new ColorUIResource(0xd6483b));

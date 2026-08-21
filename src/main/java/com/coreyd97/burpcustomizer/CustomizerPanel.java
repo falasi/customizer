@@ -2,6 +2,7 @@ package com.coreyd97.burpcustomizer;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -42,6 +43,12 @@ public class CustomizerPanel extends JPanel {
     private final List<JComponent> mutedText = new ArrayList<>();
     private final List<JComponent> linkText = new ArrayList<>();
     private final List<JComponent> widthLimited = new ArrayList<>();
+    private final List<JComponent> smallText = new ArrayList<>();
+    /**
+     * One per editor colour role, so the swatches can be brought back into step whenever the
+     * colours change - which is on every theme change as well as every edit.
+     */
+    private final List<Runnable> editorColourRows = new ArrayList<>();
 
     public CustomizerPanel(BurpCustomizer customizer) {
         this.customizer = customizer;
@@ -133,6 +140,8 @@ public class CustomizerPanel extends JPanel {
         column.add(centred(customThemeLabel));
         column.add(Box.createVerticalStrut(22));
         column.add(centred(applyThemeButton));
+        column.add(Box.createVerticalStrut(30));
+        column.add(centred(buildEditorColours()));
 
         //Holds the column at the top of the tab and centred across whatever width Burp gives it.
         JPanel centred = new JPanel(new GridBagLayout());
@@ -146,6 +155,7 @@ public class CustomizerPanel extends JPanel {
         centred.setBorder(new EmptyBorder(40, 20, 20, 20));
 
         applyThemeStyling();
+        refreshEditorColourRows();
 
         JScrollPane scrollPane = new JScrollPane(centred);
         scrollPane.setBorder(null);
@@ -153,6 +163,123 @@ public class CustomizerPanel extends JPanel {
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
         this.add(scrollPane, BorderLayout.CENTER);
+    }
+
+    /**
+     * Optional overrides for Burp's message editor syntax colours. With nothing set, every row
+     * shows what the theme resolved and nothing is overridden.
+     */
+    private JComponent buildEditorColours() {
+        EditorColors colors = customizer.getThemeManager().getEditorColors();
+
+        JPanel section = new JPanel(new GridBagLayout());
+        section.setOpaque(false);
+
+        JLabel heading = new JLabel("Editor Colors");
+        heading.setFont(heading.getFont().deriveFont(Font.BOLD));
+        GridBagConstraints headingAt = new GridBagConstraints();
+        headingAt.gridx = 0;
+        headingAt.gridy = 0;
+        headingAt.gridwidth = 4;
+        headingAt.anchor = GridBagConstraints.WEST;
+        headingAt.insets = new Insets(0, 0, 8, 0);
+        section.add(heading, headingAt);
+
+        int row = 1;
+        for (EditorColors.Role role : EditorColors.ROLES) {
+            addEditorColourRow(section, row++, colors, role);
+        }
+
+        JButton resetAll = new JButton(new AbstractAction("Reset All") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                colors.resetAll();
+                editorColoursChanged();
+            }
+        });
+        GridBagConstraints resetAllAt = new GridBagConstraints();
+        resetAllAt.gridx = 0;
+        resetAllAt.gridy = row;
+        resetAllAt.gridwidth = 4;
+        resetAllAt.anchor = GridBagConstraints.EAST;
+        resetAllAt.insets = new Insets(10, 0, 0, 0);
+        section.add(resetAll, resetAllAt);
+
+        return section;
+    }
+
+    private void addEditorColourRow(JPanel section, int row, EditorColors colors, EditorColors.Role role) {
+        JLabel name = new JLabel(role.label());
+        JPanel swatch = new JPanel();
+        swatch.setPreferredSize(new Dimension(14, 14));
+        swatch.setMinimumSize(new Dimension(14, 14));
+        JLabel value = new JLabel();
+        smallText.add(value);
+
+        JButton change = new JButton(new AbstractAction("Change...") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                Color current = colors.effective(role.key());
+                Color chosen = JColorChooser.showDialog(CustomizerPanel.this,
+                        "Burp Customizer - " + role.label(), current);
+                if (chosen == null) return;
+                colors.set(role.key(), chosen);
+                editorColoursChanged();
+            }
+        });
+        JButton reset = new JButton(new AbstractAction("Reset") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                colors.reset(role.key());
+                editorColoursChanged();
+            }
+        });
+
+        editorColourRows.add(() -> {
+            Color effective = colors.effective(role.key());
+            swatch.setBackground(effective != null ? effective : UIManager.getColor("Panel.background"));
+            swatch.setBorder(new MatteBorder(1, 1, 1, 1, mutedForeground()));
+            value.setText(effective == null ? "not set"
+                    : EditorColors.hex(effective) + (colors.isOverridden(role.key()) ? " (custom)" : " (theme)"));
+            reset.setEnabled(colors.isOverridden(role.key()));
+        });
+
+        GridBagConstraints at = new GridBagConstraints();
+        at.gridy = row;
+        at.anchor = GridBagConstraints.WEST;
+        at.insets = new Insets(2, 0, 2, 8);
+
+        at.gridx = 0;
+        at.weightx = 1;
+        section.add(name, at);
+        at.weightx = 0;
+
+        JPanel preview = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        preview.setOpaque(false);
+        preview.add(swatch);
+        preview.add(value);
+        at.gridx = 1;
+        section.add(preview, at);
+
+        at.gridx = 2;
+        section.add(change, at);
+
+        at.gridx = 3;
+        at.insets = new Insets(2, 0, 2, 0);
+        section.add(reset, at);
+    }
+
+    /**
+     * Brings the swatches back into step and makes the new colour visible in the editors which
+     * already exist. Newly built ones read it from the defaults themselves.
+     */
+    private void editorColoursChanged() {
+        refreshEditorColourRows();
+        customizer.getThemeManager().refreshBurpUI();
+    }
+
+    private void refreshEditorColourRows() {
+        for (Runnable row : editorColourRows) row.run();
     }
 
     /**
@@ -212,6 +339,8 @@ public class CustomizerPanel extends JPanel {
     public void themeChanged() {
         applyThemeStyling();
         updateCustomThemeLabel();
+        //A new theme resolves its own editor colours, so the rows have to be read again.
+        refreshEditorColourRows();
         revalidate();
         repaint();
     }
@@ -239,6 +368,7 @@ public class CustomizerPanel extends JPanel {
             component.setFont(small);
             component.setForeground(linkForeground());
         }
+        for (JComponent component : smallText) component.setFont(small);
         for (JComponent component : widthLimited) {
             component.setMaximumSize(new Dimension(CONTROL_WIDTH, component.getPreferredSize().height));
         }

@@ -60,6 +60,12 @@ public class ThemeManager {
 
     @Getter
     private final ArrayList<UIManager.LookAndFeelInfo> themes;
+    /**
+     * The user's own message editor colours. Optional overrides - with none set, editor colours
+     * are whatever the theme and Burp's defaults produce.
+     */
+    @Getter
+    private final EditorColors editorColors = new EditorColors();
     @Getter
     private ThemeSource themeSource = ThemeSource.BUILTIN;
     @Getter
@@ -79,6 +85,7 @@ public class ThemeManager {
         //live in, the class loader which can see them, and the values it had before theming.
         //This has to happen before any theme is applied.
         CustomTheme.setBurpLookAndFeel(originalBurpTheme);
+        CustomTheme.setEditorColors(editorColors);
 
         this.themes = new ArrayList<>(Arrays.stream(FlatAllIJThemes.INFOS)
                 .filter(lookAndFeelInfo -> !lookAndFeelInfo.getName().equalsIgnoreCase("Xcode-Dark"))

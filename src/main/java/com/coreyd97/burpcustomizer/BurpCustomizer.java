@@ -147,6 +147,11 @@ public class BurpCustomizer implements BurpExtension {
         montoya.persistence().preferences().setString(key, value);
     }
 
+    public static void deletePreference(String key) {
+        if (montoya == null) return;
+        montoya.persistence().preferences().deleteString(key);
+    }
+
     public void extensionUnloaded() {
         BurpCustomizer.montoya = null;
         if (menuBar != null && menuItem != null) menuBar.remove(menuItem);

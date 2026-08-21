@@ -87,8 +87,20 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
      */
     private static volatile LookAndFeel burpLookAndFeel;
     private static volatile BurpDefaults burpDefaults = BurpDefaults.none();
+    /**
+     * The user's own message editor colours, laid over the theme once it has resolved.
+     */
+    private static volatile EditorColors editorColors;
     private static volatile BurpLafClasses burpLafClasses;
     private static volatile boolean burpLafDiscoveryDone;
+
+    /**
+     * Registers the user's editor colour overrides, so every theme built from here on carries
+     * them. They are applied after Burp's defaults are resolved, never before.
+     */
+    public static void setEditorColors(EditorColors colors) {
+        editorColors = colors;
+    }
 
     /**
      * Registers Burp's own look and feel and captures the UI defaults it has installed.
@@ -360,6 +372,12 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
         if (resolved > 0 && !isPreview)
             BurpCustomizer.logOutput("Burp Customizer: resolved " + resolved + " Burp specific UI default(s) against "
                     + "the theme \"" + getName() + "\".");
+
+        //Last word: theme -> Burp's defaults resolved -> the user's own editor colours. The
+        //preview builds a theme which is never installed, so it must not disturb the record of
+        //what the applied theme resolved.
+        EditorColors userColors = editorColors;
+        if (userColors != null && !isPreview) userColors.applyTo(defaults);
 
         if (!isPreview) {
             List<String> branded = burpDefaults.brandColouredKeysAfterTheming(defaults);

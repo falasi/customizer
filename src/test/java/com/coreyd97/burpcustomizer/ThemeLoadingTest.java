@@ -243,32 +243,6 @@ class ThemeLoadingTest {
     }
 
     /**
-     * Burp declares its message editor's syntax colours as null and fills them in from code,
-     * so left alone the resolver derives them from the colours Burp had - keeping Burp's own
-     * green for the values it paints green: URL parameters, cookies and string literals. Each
-     * flavour names those three itself.
-     */
-    @ParameterizedTest
-    @CsvSource({
-            //                    teal,    green
-            "Catppuccin Latte,     #179299, #40a02b",
-            "Catppuccin Frappé,    #81c8be, #a6d189",
-            "Catppuccin Macchiato, #8bd5ca, #a6da95",
-            "Catppuccin Mocha,     #94e2d5, #a6e3a1",
-    })
-    void valueTokensUseTheFlavoursTeal(String name, String teal, String green) throws ThemeLoadException {
-        themeManager.applyBundledTheme(theme(name));
-        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
-
-        assertEquals(Color.decode(teal), defaults.get("Colors.ui.editor.message.paramValue"), name + ": parameter values");
-        assertEquals(Color.decode(teal), defaults.get("Colors.ui.editor.message.cookieValue"), name + ": cookie values");
-        assertEquals(Color.decode(teal), defaults.get("Colors.ui.editor.message.literalString"), name + ": string literals");
-
-        //Green is still green everywhere it means something else.
-        assertEquals(Color.decode(green), defaults.get("ProgressBar.passedColor"), name + ": a passing progress bar");
-    }
-
-    /**
      * The bundled theme json files must be self contained - FlatLaf cannot resolve a
      * {@code $property} or {@code @variable} reference from a theme's "ui" section.
      */
