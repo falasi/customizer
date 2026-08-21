@@ -34,12 +34,14 @@ public class BurpCustomizer implements BurpExtension {
         FlatUIDefaultsInspector.install("ctrl shift alt Y");
         FlatInspector.install("ctrl shift alt U");
         patchPopupFactoryForFlatInspector();
+        LafDiagnostics.install(); //TEMPORARY DIAGNOSTICS - remove before merging.
 
         this.ui = new CustomizerPanel(this);
         montoya.extension().registerUnloadingHandler(this::extensionUnloaded);
 
         SwingUtilities.invokeLater(() -> {
             themeManager.restoreSavedTheme();
+            LafDiagnostics.themeApplied("startup restore"); //TEMPORARY DIAGNOSTICS
             ui.themeChanged();
 
             montoya.userInterface().registerSuiteTab("Customizer", this.ui);
@@ -109,6 +111,7 @@ public class BurpCustomizer implements BurpExtension {
             logError("Could not load theme.", ex);
             JOptionPane.showMessageDialog(ui, ex.getMessage(), "Burp Customizer", JOptionPane.ERROR_MESSAGE);
         }
+        LafDiagnostics.themeApplied("Apply button"); //TEMPORARY DIAGNOSTICS
         if (ui != null) ui.themeChanged();
     }
 
