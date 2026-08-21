@@ -484,7 +484,8 @@
         "editor": {
           "message": {
             "paramValue": "teal",
-            "cookieValue": "teal"
+            "cookieValue": "teal",
+            "literalString": "teal"
           }
         }
       }
