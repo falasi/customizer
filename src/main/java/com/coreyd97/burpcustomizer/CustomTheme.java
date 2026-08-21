@@ -489,9 +489,24 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
     private void collectDefinedKeys(Properties properties, Set<String> into) {
         for (String key : properties.stringPropertyNames()) {
+            //Burp declares its palette slots as the literal "null" and fills them in from code,
+            //per polarity. FlatLaf reads "null" as no value at all, and a null deletes the key
+            //it is put under - so under another theme a property written that way defines
+            //nothing, and every key derived from it is deleted rather than themed.
+            if (isNullValue(properties.getProperty(key))) continue;
             String defined = effectiveKey(key);
             if (defined != null) into.add(defined);
         }
+    }
+
+    /**
+     * The values FlatLaf turns into a null, which {@code UIDefaults.put} then treats as a
+     * request to remove the key.
+     */
+    private static boolean isNullValue(String value) {
+        if (value == null) return true;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() || trimmed.equals("null");
     }
 
     /**
