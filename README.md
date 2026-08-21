@@ -1,4 +1,3 @@
-> Known issue: If Burp Proxy HTTP history does not show the text editor unload the extension go back to HTTP history click on a request then reload the extension this is a temp workaround until i fix the main issue. 
 > This repository is a maintained fork of [PortSwigger/customizer](https://github.com/PortSwigger/customizer).
 >
 > It adds bundled Catppuccin themes, custom `.theme.json` loading, and compatibility fixes for current Burp Suite versions.
