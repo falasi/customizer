@@ -1,166 +1,71 @@
 package com.coreyd97.burpcustomizer;
 
-import com.coreyd97.BurpExtenderUtilities.Alignment;
-import com.coreyd97.BurpExtenderUtilities.PanelBuilder;
-import com.formdev.flatlaf.FlatLaf;
-import lombok.SneakyThrows;
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import javax.swing.text.Style;
-import javax.swing.text.StyleConstants;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.ItemEvent;
-import java.awt.image.BufferedImage;
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 public class CustomizerPanel extends JPanel {
 
     private static final String NO_CUSTOM_THEME = "No theme file loaded";
 
+    private static final String ORIGINAL_PROJECT_URL = "https://github.com/CoreyD97/BurpCustomizer";
+    private static final String PORTSWIGGER_PROJECT_URL = "https://github.com/PortSwigger/customizer";
+    private static final String FORK_PROJECT_URL = "https://github.com/falasi/customizer";
+
+    /**
+     * Keeps the controls a readable width rather than letting them stretch the whole way
+     * across a maximised Burp window.
+     */
+    private static final int CONTROL_WIDTH = 320;
+
     private final BurpCustomizer customizer;
-    JButton viewOnGithubButton;
     private File selectedThemeFile;
     public final PreviewPanel previewPanel;
     private final JComboBox<UIManager.LookAndFeelInfo> lookAndFeelSelector;
     private final JLabel customThemeLabel;
+    private final JLabel titleLabel;
+    private final JLabel subtitleLabel;
 
-    public CustomizerPanel(BurpCustomizer customizer){
+    /**
+     * The parts of this panel whose font and colour come from the theme rather than from a
+     * fixed value, so they can be worked out again whenever the theme changes.
+     */
+    private final List<JComponent> mutedText = new ArrayList<>();
+    private final List<JComponent> linkText = new ArrayList<>();
+    private final List<JComponent> widthLimited = new ArrayList<>();
+
+    public CustomizerPanel(BurpCustomizer customizer) {
         this.customizer = customizer;
         this.setLayout(new BorderLayout());
 
-        JLabel headerLabel = new JLabel("Burp Customizer");
-        Font font = this.getFont().deriveFont(32f).deriveFont(this.getFont().getStyle() | Font.BOLD);
-        headerLabel.setFont(font);
-        headerLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        titleLabel = new JLabel("Burp Customizer");
+        subtitleLabel = new JLabel("Catppuccin themes for Burp Suite");
 
-        JLabel subtitle = new JLabel("Because just a dark theme wasn't enough!");
-        Font subtitleFont = subtitle.getFont().deriveFont(16f).deriveFont(subtitle.getFont().getStyle() | Font.ITALIC);
-        subtitle.setFont(subtitleFont);
-        subtitle.setHorizontalAlignment(SwingConstants.CENTER);
-
-        subtitle.setBorder(new EmptyBorder(0, 0, 10, 0));
-
-        JSeparator separator = new JSeparator(SwingConstants.HORIZONTAL);
-
-        JPanel contactPanel = new JPanel(new GridLayout(2,0));
-        contactPanel.setBorder(new EmptyBorder(10, 0, 0, 0));
-
-        ImageIcon twitterImage = loadImage("TwitterLogo.png", 30, 30);
-        JButton twitterButton;
-        if(twitterImage != null){
-            twitterButton = new JButton("Follow me on Twitter", twitterImage);
-            twitterButton.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
-            twitterButton.setIconTextGap(7);
-        }else{
-            twitterButton = new JButton("Follow me on Twitter");
-        }
-
-        twitterButton.addActionListener(actionEvent -> {
-            try {
-                Desktop.getDesktop().browse(new URI("https://twitter.com/coreyd97"));
-            } catch (IOException | URISyntaxException e) {}
-        });
-
-        ImageIcon githubImage = getGithubIcon();
-        if(githubImage != null){
-            viewOnGithubButton = new JButton("View Project on GitHub", githubImage);
-            viewOnGithubButton.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
-            viewOnGithubButton.setIconTextGap(7);
-        }else{
-            viewOnGithubButton = new JButton("View Project on GitHub");
-        }
-        viewOnGithubButton.addActionListener(actionEvent -> {
-            try {
-                Desktop.getDesktop().browse(new URI("https://github.com/CoreyD97/BurpCustomizer"));
-            } catch (IOException | URISyntaxException e) {}
-        });
-        contactPanel.add(new JLabel("Created by:"));
-        contactPanel.add(twitterButton);
-        contactPanel.add(new JLabel("Corey Arthur (@CoreyD97)"));
-        contactPanel.add(viewOnGithubButton);
-        contactPanel.setBorder(BorderFactory.createEmptyBorder(15,0,15,0));
-
-
-        WrappedTextPane aboutContent = new WrappedTextPane();
-        aboutContent.setEditable(false);
-        aboutContent.setOpaque(false);
-        aboutContent.setCaret(new NoTextSelectionCaret(aboutContent));
-        JScrollPane aboutScrollPane = new JScrollPane(aboutContent);
-        aboutScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        aboutScrollPane.setBorder(null);
-        Style bold = aboutContent.getStyledDocument().addStyle("bold", null);
-        StyleConstants.setBold(bold, true);
-        Style italics = aboutContent.getStyledDocument().addStyle("italics", null);
-        StyleConstants.setItalic(italics, true);
-
-
-        String intro = "Everybody knows hackers only work at night, so for years people asked PortSwigger to implement a dark theme.\n" +
-                "When they did, hackers rejoiced everywhere! But, some still wanted more... Until... Burp Customizer!\n\n" +
-                "Burp Suite 2020.12 replaced the old Look and Feel classes with FlatLaf, an open source Look and Feel class " +
-                "which also supports 3rd party themes developed for the IntelliJ Platform. This extension allows you to use " +
-                "these themes in Burp Suite, and includes a number of bundled themes to try, including all four " +
-                "Catppuccin flavours. You can also load your own IntelliJ/FlatLaf .theme.json file from disk using " +
-                "the \"Load Theme File...\" button below - it is applied immediately, no restart required.\n\n";
-        String notesHeader = "Notes:\n";
-        String notes = "When switching from a dark -> light theme, or vice-versa, first change Burp's theme in \"User options -> Display\" or icons will not be colored correctly.";
-        String limitationsHeader = "Limitations:\n";
-        String limitations = "Since Burp uses a number of custom GUI elements, PortSwigger extended the default " +
-                "Look and Feel classes with a number of additional properties. In order to try to make these blend in, I've " +
-                "tried to find standard elements who's colors can be used to replace the custom properties. Some themes might " +
-                "not have these properties, or might not fit the theme perfectly. If there are any elements which don't fit, " +
-                "please submit an issue on GitHub including the theme name, and a screenshot.\n\n";
-        String creditsHeader = "Credits:\n";
-        String credits = "FlatLaf - https://www.formdev.com/flatlaf/\n" +
-                                "All theme credits go to their original authors.";
-
-        //Doing this an odd way since insertString seems to cause errors on windows!
-        int offset = 0;
-        String[] sections = new String[]{intro, limitationsHeader, limitations, creditsHeader, credits};
-        Style[] styles = new Style[]{italics, bold, null, bold, null, bold, null, bold,
-                null, bold, null, null, italics, null, italics, bold, null, italics, null};
-        String content = String.join("", sections);
-        aboutContent.setText(content);
-        for (int i = 0; i < sections.length; i++) {
-            String section = sections[i];
-            if(styles[i] != null)
-                aboutContent.getStyledDocument().setCharacterAttributes(offset, section.length(), styles[i], false);
-            offset+=section.length();
-        }
-
-        aboutContent.setBorder(new EmptyBorder(0, 0, 20, 0));
-
+        //The preview is no longer part of the layout, but the selector still builds a theme
+        //for it, which is what reports a theme that cannot be loaded.
         previewPanel = new PreviewPanel();
-        previewPanel.setBorder(new EmptyBorder(10, 0, 10, 0));
-
-        JLabel themeLabel = new JLabel("Select Theme");
-        themeLabel.setFont(themeLabel.getFont().deriveFont(Font.BOLD));
 
         lookAndFeelSelector = new JComboBox<>();
         lookAndFeelSelector.setRenderer(new LookAndFeelRenderer());
-        for (UIManager.LookAndFeelInfo theme : customizer.getThemes()) {
+        for (UIManager.LookAndFeelInfo theme : customizer.getThemeManager().getSelectableThemes()) {
             lookAndFeelSelector.addItem(theme);
         }
-        JLabel defaultThemeLabel = new JLabel("Theme: ");
-        defaultThemeLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
-
-        customThemeLabel = new JLabel(NO_CUSTOM_THEME);
-        customThemeLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 0));
-
         lookAndFeelSelector.addItemListener(e -> {
-            if(e.getStateChange() == ItemEvent.SELECTED) {
+            if (e.getStateChange() == ItemEvent.SELECTED) {
                 selectedThemeFile = null;
-                try{
+                try {
                     LookAndFeel theme = customizer.createThemeFromDefaults((UIManager.LookAndFeelInfo) e.getItem(), true);
                     previewPanel.setPreviewTheme(theme);
-                }catch (ThemeLoadException | UnsupportedLookAndFeelException ex){
+                } catch (ThemeLoadException | UnsupportedLookAndFeelException ex) {
                     BurpCustomizer.logError("Could not load theme for preview.", ex);
                     previewPanel.reset();
                     JOptionPane.showMessageDialog(CustomizerPanel.this, ex.getMessage(), "Burp Customizer", JOptionPane.ERROR_MESSAGE);
@@ -173,7 +78,7 @@ public class CustomizerPanel extends JPanel {
             public void actionPerformed(ActionEvent e) {
                 JFileChooser fileChooser = new JFileChooser();
                 fileChooser.setFileFilter(new FileNameExtensionFilter("IntelliJ/FlatLaf Theme File (*.theme.json, *.json)", "json"));
-                if(fileChooser.showOpenDialog(CustomizerPanel.this) != JFileChooser.APPROVE_OPTION) return;
+                if (fileChooser.showOpenDialog(CustomizerPanel.this) != JFileChooser.APPROVE_OPTION) return;
 
                 //Applied immediately - no need to press Apply, and no need to restart Burp.
                 selectedThemeFile = fileChooser.getSelectedFile();
@@ -182,93 +87,68 @@ public class CustomizerPanel extends JPanel {
             }
         });
 
+        customThemeLabel = new JLabel(NO_CUSTOM_THEME);
+        mutedText.add(customThemeLabel);
+
         JButton applyThemeButton = new JButton(new AbstractAction("Apply") {
             @Override
             public void actionPerformed(ActionEvent e) {
-//                SwingUtilities.invokeLater(() -> {
-                    if(lookAndFeelSelector.getSelectedItem() != null) {
-                        customizer.setTheme((UIManager.LookAndFeelInfo) lookAndFeelSelector.getSelectedItem());
-                    }else if(selectedThemeFile != null){
-                        customizer.setTheme(selectedThemeFile);
-                    }else{
-                        JOptionPane.showMessageDialog(CustomizerPanel.this, "No theme selected!", "Burp Customizer", JOptionPane.ERROR_MESSAGE);
-                    }
-//                });
+                if (lookAndFeelSelector.getSelectedItem() != null) {
+                    customizer.setTheme((UIManager.LookAndFeelInfo) lookAndFeelSelector.getSelectedItem());
+                } else if (selectedThemeFile != null) {
+                    customizer.setTheme(selectedThemeFile);
+                } else {
+                    JOptionPane.showMessageDialog(CustomizerPanel.this, "No theme selected!", "Burp Customizer", JOptionPane.ERROR_MESSAGE);
+                }
             }
         });
-//        applyThemeButton.setMinimumSize(applyThemeButton.getSize());
 
-        if(customizer.getThemeSource() == ThemeManager.ThemeSource.BUILTIN && customizer.getSelectedBuiltIn() != null) {
+        if (customizer.getThemeSource() == ThemeManager.ThemeSource.BUILTIN && customizer.getSelectedBuiltIn() != null) {
             lookAndFeelSelector.setSelectedItem(customizer.getSelectedBuiltIn());
-        } else if(customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customizer.getSelectedThemeFile() != null) {
+        } else if (customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customizer.getSelectedThemeFile() != null) {
             lookAndFeelSelector.setSelectedItem(null);
             selectedThemeFile = customizer.getSelectedThemeFile();
         }
         updateCustomThemeLabel();
 
-        PanelBuilder selectorPanelBuilder = new PanelBuilder();
-        selectorPanelBuilder.setComponentGrid(new Component[][]{
-                new Component[]{themeLabel, themeLabel},
-                new Component[]{defaultThemeLabel, lookAndFeelSelector},
-                new Component[]{loadThemeFileButton, customThemeLabel},
-                new Component[]{previewPanel, previewPanel},
-                new Component[]{applyThemeButton, applyThemeButton},
-        });
-        int[][] selectorPanelWeights = new int[][]{
-                new int[]{0, 0},
-                new int[]{1, 1},
-                new int[]{1, 1},
-                new int[]{3, 3},
-                new int[]{1, 1},
-        };
-        selectorPanelBuilder.setGridWeightsX(selectorPanelWeights);
-        selectorPanelBuilder.setGridWeightsY(selectorPanelWeights);
-        selectorPanelBuilder.setAlignment(Alignment.FILL);
+        widthLimited.add(lookAndFeelSelector);
+        widthLimited.add(loadThemeFileButton);
+        widthLimited.add(applyThemeButton);
 
-        JPanel selectorPanel = selectorPanelBuilder.build();
+        JPanel column = new JPanel();
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setOpaque(false);
+        //Gives the column its width, so the controls below are laid out against it.
+        column.add(Box.createRigidArea(new Dimension(CONTROL_WIDTH, 0)));
+        column.add(centred(titleLabel));
+        column.add(Box.createVerticalStrut(4));
+        column.add(centred(subtitleLabel));
+        column.add(Box.createVerticalStrut(8));
+        column.add(centred(buildAttribution()));
+        column.add(Box.createVerticalStrut(28));
+        column.add(centred(lookAndFeelSelector));
+        column.add(Box.createVerticalStrut(18));
+        column.add(centred(loadThemeFileButton));
+        column.add(Box.createVerticalStrut(6));
+        column.add(centred(customThemeLabel));
+        column.add(Box.createVerticalStrut(22));
+        column.add(centred(applyThemeButton));
 
-        JPanel fillerPanel = new JPanel();
-        fillerPanel.setMaximumSize(new Dimension(0,0));
+        //Holds the column at the top of the tab and centred across whatever width Burp gives it.
+        JPanel centred = new JPanel(new GridBagLayout());
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        constraints.weightx = 1;
+        constraints.weighty = 1;
+        constraints.anchor = GridBagConstraints.NORTH;
+        centred.add(column, constraints);
+        centred.setBorder(new EmptyBorder(40, 20, 20, 20));
 
-        Component[][] componentGrid = new Component[][]{
-                new Component[]{headerLabel},
-                new Component[]{subtitle},
-                new Component[]{separator},
-                new Component[]{contactPanel},
-                new Component[]{aboutContent},
-                new Component[]{selectorPanel},
-                new Component[]{fillerPanel},
-//                new Component[]{fillerPanel}
-        };
+        applyThemeStyling();
 
-        int[][] weightGridY = new int[][]{
-                new int[]{0},
-                new int[]{0},
-                new int[]{0},
-                new int[]{0},
-                new int[]{0},
-                new int[]{0},
-                new int[]{1},
-        };
-
-        PanelBuilder contentPanelBuilder = new PanelBuilder();
-        contentPanelBuilder.setComponentGrid(componentGrid);
-        contentPanelBuilder.setGridWeightsX(weightGridY);
-        contentPanelBuilder.setGridWeightsY(weightGridY);
-        contentPanelBuilder.setScaleX(0.8);
-        contentPanelBuilder.setScaleY(1.0);
-        contentPanelBuilder.setAlignment(Alignment.FILL);
-
-        JPanel contentPanel = contentPanelBuilder.build();
-        contentPanel.setBorder(new EmptyBorder(30, 30, 30, 30));
-
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                contentPanel.setPreferredSize(new Dimension(e.getComponent().getWidth(), contentPanel.getHeight()));
-            }
-        });
+        JScrollPane scrollPane = new JScrollPane(centred);
+        scrollPane.setBorder(null);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
@@ -276,46 +156,120 @@ public class CustomizerPanel extends JPanel {
     }
 
     /**
-     * Called after the applied theme changed, so theme dependent parts of this panel
-     * (the GitHub logo and the loaded custom theme) stay in sync. Must be called on the EDT.
+     * Credit for the extension, kept to one line. The full history and licence live in the
+     * project's README.
      */
-    public void themeChanged(){
-        viewOnGithubButton.setIcon(getGithubIcon());
-        updateCustomThemeLabel();
+    private JComponent buildAttribution() {
+        JPanel attribution = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        attribution.setOpaque(false);
+        attribution.add(mutedLabel("Original extension by "));
+        attribution.add(link("CoreyD97", ORIGINAL_PROJECT_URL));
+        attribution.add(mutedLabel(" · maintained by "));
+        attribution.add(link("PortSwigger", PORTSWIGGER_PROJECT_URL));
+        attribution.add(mutedLabel(" · fork by "));
+        attribution.add(link("falasi", FORK_PROJECT_URL));
+        return attribution;
     }
 
-    private void updateCustomThemeLabel(){
+    private JLabel mutedLabel(String text) {
+        JLabel label = new JLabel(text);
+        mutedText.add(label);
+        return label;
+    }
+
+    private JButton link(String text, String url) {
+        JButton button = new JButton(text);
+        button.setBorder(BorderFactory.createEmptyBorder());
+        button.setBorderPainted(false);
+        button.setContentAreaFilled(false);
+        button.setFocusPainted(false);
+        button.setMargin(new Insets(0, 0, 0, 0));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setToolTipText(url);
+        button.addActionListener(e -> browse(url));
+        linkText.add(button);
+        return button;
+    }
+
+    private static void browse(String url) {
+        try {
+            if (!Desktop.isDesktopSupported()) return;
+            Desktop.getDesktop().browse(new URI(url));
+        } catch (IOException | URISyntaxException | RuntimeException e) {
+            BurpCustomizer.logError("Could not open " + url + " in a browser.", e);
+        }
+    }
+
+    private static <T extends JComponent> T centred(T component) {
+        component.setAlignmentX(Component.CENTER_ALIGNMENT);
+        return component;
+    }
+
+    /**
+     * Called after the applied theme changed, so the theme dependent parts of this panel stay
+     * in sync. Must be called on the EDT.
+     */
+    public void themeChanged() {
+        applyThemeStyling();
+        updateCustomThemeLabel();
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Sizes and colours the text from the theme's own defaults rather than from fixed values,
+     * so this panel follows a light theme and a dark one alike. Reapplied on every theme
+     * change, because switching the look and feel puts every component back on the theme's
+     * own font and colour.
+     */
+    private void applyThemeStyling() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = titleLabel.getFont();
+        Font small = base.deriveFont(Math.max(base.getSize2D() - 1f, 9f));
+
+        titleLabel.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 10f));
+        subtitleLabel.setFont(base);
+        subtitleLabel.setForeground(mutedForeground());
+
+        for (JComponent component : mutedText) {
+            component.setFont(small);
+            component.setForeground(mutedForeground());
+        }
+        for (JComponent component : linkText) {
+            component.setFont(small);
+            component.setForeground(linkForeground());
+        }
+        for (JComponent component : widthLimited) {
+            component.setMaximumSize(new Dimension(CONTROL_WIDTH, component.getPreferredSize().height));
+        }
+    }
+
+    /**
+     * The theme's own quiet text colour, for text which should not compete with the controls.
+     */
+    private static Color mutedForeground() {
+        Color muted = UIManager.getColor("Label.disabledForeground");
+        if (muted == null) muted = UIManager.getColor("Component.disabledColor");
+        if (muted == null) muted = UIManager.getColor("Label.foreground");
+        return muted;
+    }
+
+    private static Color linkForeground() {
+        Color link = UIManager.getColor("Component.linkColor");
+        if (link == null) link = UIManager.getColor("Component.accentColor");
+        if (link == null) link = UIManager.getColor("Label.foreground");
+        return link;
+    }
+
+    private void updateCustomThemeLabel() {
         String customThemeName = customizer.getThemeManager().getCustomThemeName();
-        if(customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customThemeName != null){
+        if (customizer.getThemeSource() == ThemeManager.ThemeSource.FILE && customThemeName != null) {
             customThemeLabel.setText("Custom: " + customThemeName);
-        }else if(selectedThemeFile != null){
+        } else if (selectedThemeFile != null) {
             customThemeLabel.setText(selectedThemeFile.getName());
-        }else{
+        } else {
             customThemeLabel.setText(NO_CUSTOM_THEME);
         }
-    }
-
-    private ImageIcon getGithubIcon(){
-        String githubLogoFilename = "GitHubLogo" +
-                (UIManager.getLookAndFeel() instanceof FlatLaf && ((FlatLaf) UIManager.getLookAndFeel()).isDark() ? "White" : "Black")
-                + ".png";
-        return loadImage(githubLogoFilename, 30, 30);
-    }
-
-    private ImageIcon loadImage(String filename, int width, int height){
-        ClassLoader cldr = this.getClass().getClassLoader();
-        URL imageURLMain = cldr.getResource(filename);
-
-        if(imageURLMain != null) {
-            Image scaled = new ImageIcon(imageURLMain).getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-            ImageIcon scaledIcon = new ImageIcon(scaled);
-            BufferedImage bufferedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = (Graphics2D) bufferedImage.getGraphics();
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.drawImage(scaledIcon.getImage(), null, null);
-            return new ImageIcon(bufferedImage);
-        }
-        return null;
     }
 
     private static class LookAndFeelRenderer extends DefaultListCellRenderer {
