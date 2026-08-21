@@ -224,6 +224,45 @@ class BurpDefaultsDiscoveryTest {
     }
 
     /**
+     * Burp derives some of its UI defaults - core Swing ones among them - from colours only
+     * its own theme json defines, using FlatLaf's optional reference syntax. An optional
+     * reference which does not resolve becomes null, and {@code UIDefaults.put(key, null)}
+     * deletes the key, so {@code Panel.background} went missing before the theme was applied.
+     * A theme which names {@code Panel.background} outright puts it back; a theme which sets
+     * it only through its {@code "*"} wildcard cannot, because the wildcard only replaces
+     * keys which already exist. FlatLaf then failed deriving {@code Desktop.background} from
+     * it, and Burp's defaults were dropped for that theme as a whole.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Cyan light", "Dracula", "Solarized Light"})
+    void themesSettingPanelBackgroundOnlyByWildcardKeepBurpsDefaults(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        assertEquals(new Color(0x0a0b0c), defaults.get("Burp.modernPropertiesKey"),
+                themeName + ": Burp's own defaults were dropped rather than applied");
+        assertInstanceOf(Color.class, defaults.get("Panel.background"),
+                themeName + ": Panel.background was deleted by a reference which resolved to null");
+        assertInstanceOf(Color.class, defaults.get("Desktop.background"),
+                themeName + ": Desktop.background could not be derived from Panel.background");
+    }
+
+    /**
+     * The key an unresolved optional reference defines keeps a colour of its own, rather than
+     * being deleted from the defaults.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Cyan light", "Catppuccin Frappé"})
+    void optionalReferencesBurpCannotResolveStillDefineTheirKey(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+
+        assertInstanceOf(Color.class, UIManager.getLookAndFeelDefaults().get("Burp.modernOptionalReference"),
+                themeName + ": the key was deleted instead of resolved against the theme");
+    }
+
+    /**
      * Sizes and insets are not theme dependent, so they carry over untouched.
      */
     @Test
