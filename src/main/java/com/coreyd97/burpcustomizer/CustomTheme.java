@@ -73,7 +73,10 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
      * only resolves one at the start of a value or of a function argument, so a '$' anywhere
      * else - notably the one in an inner class name such as
      * {@code com.formdev.flatlaf.ui.FlatRootPaneUI$FlatWindowBorder} - is part of the value.
-     * {@code $?name} is optional: FlatLaf resolves it to null instead of failing.
+     * {@code $?name} is optional, but that is not the same as harmless: FlatLaf resolves an
+     * unresolved optional reference to null, and {@code UIDefaults.put(key, null)} deletes the
+     * key. A theme which sets that key only through its {@code "*"} wildcard cannot put it
+     * back, because the wildcard only replaces keys which already exist.
      */
     private static final Pattern PROPERTY_REFERENCE = Pattern.compile("(?:^|[(,])\\s*([$@])(\\??)([A-Za-z0-9_.\\[\\]-]+)");
 
@@ -454,10 +457,11 @@ public class CustomTheme extends IntelliJTheme.ThemeLaf {
 
             Matcher matcher = PROPERTY_REFERENCE.matcher((String) property.getValue());
             while (matcher.find()) {
-                boolean optional = !matcher.group(2).isEmpty();
                 //A variable reference keeps its '@', a property reference drops its '$'.
                 String key = matcher.group(1).equals("@") ? "@" + matcher.group(3) : matcher.group(3);
-                if (optional || defined.contains(key) || fallbacks.containsKey(key)) continue;
+                //Optional references are defined too: left alone they resolve to null, which
+                //deletes the key the property defines rather than leaving it as it was.
+                if (defined.contains(key) || fallbacks.containsKey(key)) continue;
                 fallbacks.put(key, BurpDefaults.unresolvedPlaceholder());
             }
         }
