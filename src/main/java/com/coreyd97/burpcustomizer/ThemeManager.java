@@ -88,6 +88,18 @@ public class ThemeManager {
         this.themes.sort(Comparator.comparing(UIManager.LookAndFeelInfo::getName));
     }
 
+    /**
+     * The themes the Customizer tab lists in its dropdown.
+     * <p>
+     * The catalogue itself is unchanged: {@link #getThemes()} still holds every bundled
+     * FlatLaf IntelliJ theme, a saved selection naming one still restores and applies it,
+     * and custom {@code .theme.json} files are unaffected. This is only what the dropdown
+     * offers - return {@link #getThemes()} here to put them all back on show.
+     */
+    public List<UIManager.LookAndFeelInfo> getSelectableThemes() {
+        return List.of(BUNDLED_JSON_THEMES);
+    }
+
     // ---------------------------------------------------------------- loading
 
     /**

@@ -263,6 +263,46 @@ class BurpDefaultsDiscoveryTest {
     }
 
     /**
+     * Burp declares its palette slots as the literal {@code null} and fills them in from code,
+     * per polarity. FlatLaf reads {@code "null"} as no value at all, and putting a null into
+     * {@code UIDefaults} deletes the key - so under any other theme every key Burp derives from
+     * one of those slots was deleted rather than themed.
+     * <p>
+     * That is not a cosmetic loss. A FlatLaf style which references a deleted key resolves it
+     * with a plain {@code UIManager.get} ({@code FlatStylingSupport.parseValue}), so the style
+     * applies null as the component's background. Burp's {@code BurpTabbedPaneUI} then throws
+     * on that null while the message editor's tabbed pane is still in its constructor, and the
+     * Proxy request/response viewer is never built - the pane just stays blank.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Frappé", "Catppuccin Latte", "Dracula", "Solarized Light"})
+    void keysDerivedFromBurpsNullPaletteSlotsSurvive(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+
+        assertInstanceOf(Color.class, UIManager.getLookAndFeelDefaults().get("TabbedPane.message.background"),
+                themeName + ": a key derived from one of Burp's null palette slots was deleted");
+    }
+
+    /**
+     * The failure as Burp meets it: a tabbed pane carrying the message editor's style class has
+     * to have a background before it is added to anything, because that is when Burp reads it.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Catppuccin Frappé", "Catppuccin Latte", "Dracula", "Solarized Light"})
+    void aStyledTabbedPaneHasABackgroundBeforeItIsAddedToAnything(String themeName) throws Exception {
+        ThemeManager themeManager = install(new PortSwiggerDarkTheme());
+        themeManager.applyBundledTheme(theme(themeManager, themeName));
+
+        JTabbedPane messageEditorTabs = new JTabbedPane();
+        messageEditorTabs.putClientProperty("FlatLaf.styleClass", "message");
+
+        assertNotNull(messageEditorTabs.getBackground(), themeName
+                + ": the message editor's tabs have no background of their own, which is what "
+                + "BurpTabbedPaneUI.applyTabBackgroundTo throws on while the viewer is built");
+    }
+
+    /**
      * Sizes and insets are not theme dependent, so they carry over untouched.
      */
     @Test

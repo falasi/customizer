@@ -94,6 +94,41 @@ class ThemeLoadingTest {
     }
 
     /**
+     * The Customizer tab offers the Catppuccin flavours only. The rest of the catalogue is
+     * hidden rather than removed - every bundled FlatLaf theme is still there to be applied,
+     * restored from a saved selection, or put back on show.
+     */
+    @Test
+    void onlyTheCatppuccinFlavoursAreOffered() {
+        List<String> offered = themeManager.getSelectableThemes().stream()
+                .map(UIManager.LookAndFeelInfo::getName)
+                .toList();
+        assertEquals(List.of("Catppuccin Latte", "Catppuccin Frappé", "Catppuccin Macchiato", "Catppuccin Mocha"),
+                offered, "the dropdown should offer the Catppuccin flavours, in flavour order");
+
+        List<String> catalogue = themeManager.getThemes().stream()
+                .map(UIManager.LookAndFeelInfo::getName)
+                .toList();
+        assertTrue(catalogue.containsAll(offered), "the offered themes should still be in the catalogue");
+        for (String hidden : new String[]{"Arc Dark", "Dracula", "Solarized Light", "Cyan light"}) {
+            assertTrue(catalogue.contains(hidden), hidden + " was removed from the catalogue rather than hidden");
+        }
+        assertTrue(catalogue.size() > offered.size() + 10,
+                "the rest of the bundled themes should still be loadable, was " + catalogue.size());
+    }
+
+    /**
+     * A theme which is not offered in the dropdown can still be applied, so a saved selection
+     * naming one keeps working.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Arc Dark", "Solarized Light"})
+    void hiddenThemesCanStillBeApplied(String name) throws ThemeLoadException {
+        themeManager.applyBundledTheme(theme(name));
+        assertInstanceOf(CustomTheme.class, UIManager.getLookAndFeel(), name + ": was not applied");
+    }
+
+    /**
      * The references Burp makes to its own theme's named colours must be filled in rather
      * than aborting the look and feel.
      */
